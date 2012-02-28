@@ -1421,12 +1421,8 @@ Function Add-NetworkDiscoverySubnet
                 return
             }
 
-            if ($Search -eq "Include") {
-                $plcomp_include += "$Subnet $Mask"
-            }
-            if ($Search -eq "Exclude") {
-                $plcomp_exclude += "$Subnet $Mask"
-            }
+            if ($Search -eq "Include") { $plcomp_include += "$Subnet $Mask" }
+            if ($Search -eq "Exclude") { $plcomp_exclude += "$Subnet $Mask" }
 
             # Finally write changes back to the object
             ($propslistcomponent | where {$_.PropertyListName -eq "Subnet Include"}).Values = $plcomp_include
@@ -1473,7 +1469,7 @@ Function Remove-NetworkDiscoverySubnet
     )
     Process {
         if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-        # TODO 1. Check if it already exists (optionally restrict search to Include/Exclude list)
+        # 1. Check if it already exists (optionally restrict search to Include/Exclude list)
         $existing = Get-NetworkDiscoverySubnet -SiteCode $SiteCode -Subnet $Subnet -Mask $Mask -Search $Search
 
         if ($existing -eq $null) {
@@ -1589,14 +1585,55 @@ Function Add-NetworkDiscoveryDomain
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
-            $Force
+            $Force,
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [ValidateNotNullOrEmpty()]
+            $Domain,
+        [string]
+        [ValidateSet("Include", "Exclude")]
+        [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+            $Search = "Include"
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        if ($Search -eq "Include") { $text = "$Domain (Include in search)" }
+        if ($Search -eq "Exclude") { $text = "$Domain (Exclude from search)" }
+        if ($Force -or $pscmdlet.ShouldProcess($text)) {
+            $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+
+            $propslistcomponent = $NetworkDiscoveryComponent.PropLists
+
+            $plcomp_include   = ($propslistcomponent | where {$_.PropertyListName -eq "Domain Include"}).Values
+            $plcomp_exclude   = ($propslistcomponent | where {$_.PropertyListName -eq "Domain Exclude"}).Values
+
+            # Check uniqueness
+            if (-not $OverrideUnique -and $plcomp_include -contains "$Domain") {
+                Write-Error "An included domain with Value: `"$Domain`" already exists! This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
+                # TODO ThrowTerminatingError
+                return
+            }
+            if (-not $OverrideUnique -and $plcomp_exclude -contains "$Domain") {
+                Write-Error "An excluded domain with Value: `"$Domain`" already exists! This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
+                # TODO ThrowTerminatingError
+                return
+            }
+
+            if ($Search -eq "Include") { $plcomp_include += "$Domain" }
+            if ($Search -eq "Exclude") { $plcomp_exclude += "$Domain" }
+
+            # Write changes back to the object
+            ($propslistcomponent | where {$_.PropertyListName -eq "Domain Include"}).Values = $plcomp_include
+            ($propslistcomponent | where {$_.PropertyListName -eq "Domain Exclude"}).Values = $plcomp_exclude
+
+            $NetworkDiscoveryComponent.PropLists = $propslistcomponent
+            $NetworkDiscoveryComponent.put() > $null
+
+            # Return a domain type object representing the subnet just added
+            New-Object Object | 
+                Add-Member NoteProperty Domain $Domain -PassThru | 
+                Add-Member NoteProperty Search $Search -PassThru | 
+                Write-Output
         }
     }
 }
@@ -1608,14 +1645,51 @@ Function Remove-NetworkDiscoveryDomain
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
-            $Force
+            $Force,
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [ValidateNotNullOrEmpty()]
+            $Domain,
+        [string]
+        [ValidateSet("Both", "Include", "Exclude")]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $Search = "Both"
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        # 1. Check if it already exists (optionally restrict search to Include/Exclude list)
+        $existing = Get-NetworkDiscoveryDomain -SiteCode $SiteCode -Domain $Domain -Search $Search
+
+        if ($existing -eq $null) {
+            Write-Warning "The specified Network Discovery Domain does not exist, and so cannot be deleted"
+            # TODO ThrowTerminatingError
+            return
+        }
+
+        # 2. Confirm processing + proceed to remove
+        if ($Search -eq "Include") { $text = "$Domain (Include in search)" }
+        if ($Search -eq "Exclude") { $text = "$Domain (Exclude from search)" }
+        if ($Search -eq "Both") { $text = "$Domain" }
+        if ($Force -or $pscmdlet.ShouldProcess($text)) {
+            $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+
+            $propslistcomponent = $NetworkDiscoveryComponent.PropLists
+
+            $plcomp_include = ($propslistcomponent | where {$_.PropertyListName -eq "Domain Include"}).Values
+            $plcomp_exclude = ($propslistcomponent | where {$_.PropertyListName -eq "Domain Exclude"}).Values
+
+            if ($Search -ne "Exclude") { $plcomp_include = $plcomp_include | where {$_ -notlike "$Domain"} }
+            if ($Search -ne "Include") { $plcomp_exclude = $plcomp_exclude | where {$_ -notlike "$Domain"} }
+
+            # Finally write changes back to the object
+            ($propslistcomponent | where {$_.PropertyListName -eq "Domain Include"}).Values = $plcomp_include
+            ($propslistcomponent | where {$_.PropertyListName -eq "Domain Exclude"}).Values = $plcomp_exclude
+
+            $NetworkDiscoveryComponent.PropLists = $propslistcomponent
+            $NetworkDiscoveryComponent.put() > $null
+
+            # Return a subnet type object representing the object just removed
+            $existing | Write-Output
         }
     }
 }
@@ -1625,34 +1699,58 @@ Function Get-NetworkDiscoveryDomain
     Param (
         [string]
         [ValidateNotNullOrEmpty()] 
-            $SiteCode = "Auto"
-    )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
-    Process {
-        # TODO
-    }
-}
-Function Set-NetworkDiscoveryDomain
-{
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
-    Param (
-        [string]
-        [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
-        [switch]
-            $Force
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $Domain = "*",
+        [string]
+        [ValidateSet("Both", "Include", "Exclude")]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $Search = "Both"
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+        $propslistcomponent = $NetworkDiscoveryComponent.PropLists
+
+        # 1. Look up all items which match the input parameters (or return all if no filtering requested)
+
+        if ($Search -ne "Include") {
+            $plcomp_exclude = ($propslistcomponent | where {$_.PropertyListName -eq "Domain Exclude"}).Values
+
+            # Filter result set
+            $plcomp_exclude = $plcomp_exclude | where {$_ -like "$Domain"}
+
+            # 2. Return subnet type object for each item
+            foreach ($item in $plcomp_exclude) {
+                if ($item -ne $null) {
+                    New-Object Object | 
+                        Add-Member NoteProperty Domain $item -PassThru | 
+                        Add-Member NoteProperty Search "Exclude" -PassThru | 
+                        Write-Output
+                }
+            }
+        }
+
+        if ($Search -ne "Exclude") {
+            $plcomp_include = ($propslistcomponent | where {$_.PropertyListName -eq "Domain Include"}).Values
+
+            # Filter result set
+            $plcomp_include = $plcomp_include | where {$_ -like "$Domain"}
+
+            # 2. Return subnet type object for each item
+            foreach ($item in $plcomp_include) {
+                if ($item -ne $null) {
+                    New-Object Object | 
+                        Add-Member NoteProperty Domain $item -PassThru | 
+                        Add-Member NoteProperty Search "Include" -PassThru | 
+                        Write-Output
+                }
+            }
         }
     }
 }
+
 # SNMP Communities
 Function Add-NetworkDiscoverySNMPCommunity
 {
@@ -1662,17 +1760,44 @@ Function Add-NetworkDiscoverySNMPCommunity
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
-            $Force
+            $Force,
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [ValidateNotNullOrEmpty()]
+            $CommunityName
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        if ($Force -or $pscmdlet.ShouldProcess($CommunityName)) {
+            $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+
+            $propslistcomponent = $NetworkDiscoveryComponent.PropLists
+
+            $plcomp = ($propslistcomponent | where {$_.PropertyListName -eq "Community Names"}).Values
+
+            # Check uniqueness
+            if (-not $OverrideUnique -and $plcomp -contains $CommunityName) {
+                Write-Error "An SNMP Community with Name: `"$CommunityName`" already exists! This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
+                # TODO ThrowTerminatingError
+                return
+            }
+
+            $plcomp += $CommunityName
+
+            # Write changes back to the object
+            ($propslistcomponent | where {$_.PropertyListName -eq "Community Names"}).Values = $plcomp
+
+            $NetworkDiscoveryComponent.PropLists = $propslistcomponent
+            $NetworkDiscoveryComponent.put() > $null
+
+            # Return an SNMP community type object representing the subnet just added
+            New-Object Object | 
+                Add-Member NoteProperty CommunityName $CommunityName -PassThru | 
+                Write-Output
         }
     }
 }
+
 Function Remove-NetworkDiscoverySNMPCommunity
 {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "High")]
@@ -1681,51 +1806,71 @@ Function Remove-NetworkDiscoverySNMPCommunity
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
-            $Force
+            $Force,
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [ValidateNotNullOrEmpty()]
+            $CommunityName
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        # 1. Check if it already exists
+        $existing = Get-NetworkDiscoverySNMPCommunity -SiteCode $SiteCode -CommunityName $CommunityName
+
+        if ($existing -eq $null) {
+            Write-Warning "The specified Network Discovery SNMP Community Name does not exist, and so cannot be deleted"
+            # TODO ThrowTerminatingError
+            return
+        }
+
+        # 2. Confirm processing + proceed to remove
+        if ($Force -or $pscmdlet.ShouldProcess($CommunityName)) {
+            $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+
+            $propslistcomponent = $NetworkDiscoveryComponent.PropLists
+
+            $plcomp = ($propslistcomponent | where {$_.PropertyListName -eq "Community Names"}).Values | where {$_ -ne $CommunityName}
+
+            # Finally write changes back to the object
+            ($propslistcomponent | where {$_.PropertyListName -eq "Community Names"}).Values = $plcomp
+
+            $NetworkDiscoveryComponent.PropLists = $propslistcomponent
+            $NetworkDiscoveryComponent.put() > $null
+
+            # Return a subnet type object representing the object(s) just removed
+            $existing | Write-Output
         }
     }
 }
+
 Function Get-NetworkDiscoverySNMPCommunity
 {
     [CmdletBinding()]
     Param (
         [string]
         [ValidateNotNullOrEmpty()] 
-            $SiteCode = "Auto"
-    )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
-    Process {
-        # TODO
-    }
-}
-Function Set-NetworkDiscoverySNMPCommunity
-{
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
-    Param (
-        [string]
-        [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
-        [switch]
-            $Force
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $CommunityName = "*",
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+
+        # Obtain filtered result set
+        $plcomp = ($NetworkDiscoveryComponent.PropLists | where {$_.PropertyListName -eq "Community Names"}).Values | where {$_ -like "$CommunityName"}
+
+        foreach ($item in $plcomp) {
+            if ($item -ne $null) {
+                New-Object Object | 
+                    Add-Member NoteProperty CommunityName $item -PassThru | 
+                    Write-Output
+            }
         }
     }
 }
+
 # SNMP Devices
 Function Add-NetworkDiscoverySNMPDevice
 {
@@ -1780,25 +1925,7 @@ Function Get-NetworkDiscoverySNMPDevice
         # TODO
     }
 }
-Function Set-NetworkDiscoverySNMPDevice
-{
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
-    Param (
-        [string]
-        [ValidateNotNullOrEmpty()] 
-            $SiteCode = "Auto",
-        [switch]
-            $Force
-    )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
-    Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
-        }
-    }
-}
+
 # DHCP Servers
 Function Add-NetworkDiscoveryDHCP
 {
@@ -1853,25 +1980,7 @@ Function Get-NetworkDiscoveryDHCP
         # TODO
     }
 }
-Function Set-NetworkDiscoveryDHCP
-{
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
-    Param (
-        [string]
-        [ValidateNotNullOrEmpty()] 
-            $SiteCode = "Auto",
-        [switch]
-            $Force
-    )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
-    Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
-        }
-    }
-}
+
 # Schedules
 Function Add-NetworkDiscoverySchedule
 {
