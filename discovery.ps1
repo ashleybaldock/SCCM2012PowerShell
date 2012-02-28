@@ -1350,9 +1350,25 @@ Function Get-NetworkDiscoveryDefaults
         # TODO
     }
 }
+
 # Subnets
 Function Add-NetworkDiscoverySubnet
 {
+    # Documentation notes:
+    # Specify SiteCode if you want to override the default
+    # Default SiteCode is either automatically detected as the local machine's SiteCode
+    # or you can specify it globally using the $SCCMSiteCode environment variable
+    #
+    # Explicit specification of the $SiteCode parameter lets you, for example, delete a
+    # Network Discovery Subnet from one site and add it to another, e.g.:
+    #
+    # Remove-NetworkDiscoverySubnet -SiteCode S01 -Subnet 10.10.0.0 -Mask 255.255.0.0 -Search Include | Add-NetworkDiscoverySubnet -SiteCode S02
+    #
+    # Or clone all subnets from one site to another:
+    #
+    # Get-NetworkDiscoverySubnet -SiteCode S01 | Add-NetworkDiscoverySubnet -SiteCode S02
+
+
     # Add a new subnet, error if matching subnet already exists
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
     # May also pass a subnet-type object via pipeline, these objects have the $Subnet, $Mask and $Search properties
@@ -1372,27 +1388,26 @@ Function Add-NetworkDiscoverySubnet
         [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
         [ValidateNotNullOrEmpty()]
             $Mask,
-        [switch]
+        [string]
+        [ValidateSet("Include", "Exclude")]
         [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
-            $Search = $true
+            $Search = "Include"
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        if ($Search -eq $true) { $text = "$Subnet $Mask (Include in search)" }
-        if ($Search -eq $false) { $text = "$Subnet $Mask (Exclude from search)" }
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        if ($Search -eq "Include") { $text = "$Subnet $Mask (Include in search)" }
+        if ($Search -eq "Exclude") { $text = "$Subnet $Mask (Exclude from search)" }
         if ($Force -or $pscmdlet.ShouldProcess($text)) {
             $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
-            $NetworkDiscoveryConfig = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Configuration -Filter "ItemName='SMS_NETWORK_DISCOVERY'"
+            # $NetworkDiscoveryConfig = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Configuration -Filter "ItemName='SMS_NETWORK_DISCOVERY'"
 
             $propslistcomponent = $NetworkDiscoveryComponent.PropLists
-            $propslistconfig = $NetworkDiscoveryConfig.PropLists
+            # $propslistconfig = $NetworkDiscoveryConfig.PropLists
 
             $plcomp_include   = ($propslistcomponent | where {$_.PropertyListName -eq "Subnet Include"}).Values
-            $plconfig_include = ($propslistconfig    | where {$_.PropertyListName -eq "Subnet Include"}).Values
             $plcomp_exclude   = ($propslistcomponent | where {$_.PropertyListName -eq "Subnet Exclude"}).Values
-            $plconfig_exclude = ($propslistconfig    | where {$_.PropertyListName -eq "Subnet Exclude"}).Values
+            # $plconfig_include = ($propslistconfig    | where {$_.PropertyListName -eq "Subnet Include"}).Values
+            # $plconfig_exclude = ($propslistconfig    | where {$_.PropertyListName -eq "Subnet Exclude"}).Values
 
             # Check uniqueness
             if (-not $OverrideUnique -and $plcomp_include -contains "$Subnet $Mask") {
@@ -1406,22 +1421,23 @@ Function Add-NetworkDiscoverySubnet
                 return
             }
 
-            if ($Search -eq $true) {
+            if ($Search -eq "Include") {
                 $plcomp_include += "$Subnet $Mask"
-            } else {
+            }
+            if ($Search -eq "Exclude") {
                 $plcomp_exclude += "$Subnet $Mask"
             }
 
             # Finally write changes back to the object
             ($propslistcomponent | where {$_.PropertyListName -eq "Subnet Include"}).Values = $plcomp_include
-            ($propslistconfig    | where {$_.PropertyListName -eq "Subnet Include"}).Values = $plconfig_include
             ($propslistcomponent | where {$_.PropertyListName -eq "Subnet Exclude"}).Values = $plcomp_exclude
-            ($propslistconfig    | where {$_.PropertyListName -eq "Subnet Exclude"}).Values = $plconfig_exclude
+            # ($propslistconfig    | where {$_.PropertyListName -eq "Subnet Include"}).Values = $plconfig_include
+            # ($propslistconfig    | where {$_.PropertyListName -eq "Subnet Exclude"}).Values = $plconfig_exclude
 
-            $NetworkDiscoveryComponent.Props = $propslistcomponent
+            $NetworkDiscoveryComponent.PropLists = $propslistcomponent
             $NetworkDiscoveryComponent.put() > $null
-            $NetworkDiscoveryConfig.Props = $propslistconfig
-            $NetworkDiscoveryConfig.put() > $null
+            # $NetworkDiscoveryConfig.PropLists = $propslistconfig
+            # $NetworkDiscoveryConfig.put() > $null
 
             # Return a subnet type object representing the subnet just added
             New-Object Object | 
@@ -1450,43 +1466,117 @@ Function Remove-NetworkDiscoverySubnet
         [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
         [ValidateNotNullOrEmpty()]
             $Mask,
-        [switch]
+        [string]
+        [ValidateSet("Both", "Include", "Exclude")]
         [parameter(ValueFromPipelineByPropertyName = $true)]
-            $Search = $null
+            $Search = "Both"
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        if ($Force -or $pscmdlet.ShouldProcess("$Subnet $Mask")) {
-            # TODO
-            # 1. Check if it already exists (optionally restrict search to Include/Exclude list)
-            # 2. Confirm processing + proceed to remove
-            # 3. Return subnet type object with properties of removed object (including list it was on)
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        # TODO 1. Check if it already exists (optionally restrict search to Include/Exclude list)
+        $existing = Get-NetworkDiscoverySubnet -SiteCode $SiteCode -Subnet $Subnet -Mask $Mask -Search $Search
+
+        if ($existing -eq $null) {
+            Write-Warning "The specified Network Discovery Subnet does not exist, and so cannot be deleted"
+            # TODO ThrowTerminatingError
+            return
+        }
+
+        # 2. Confirm processing + proceed to remove
+        if ($Search -eq "Include") { $text = "$Subnet $Mask (Include in search)" }
+        if ($Search -eq "Exclude") { $text = "$Subnet $Mask (Exclude from search)" }
+        if ($Search -eq "Both") { $text = "$Subnet $Mask" }
+        if ($Force -or $pscmdlet.ShouldProcess($text)) {
+            $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+
+            $propslistcomponent = $NetworkDiscoveryComponent.PropLists
+
+            $plcomp_include   = ($propslistcomponent | where {$_.PropertyListName -eq "Subnet Include"}).Values
+            $plcomp_exclude   = ($propslistcomponent | where {$_.PropertyListName -eq "Subnet Exclude"}).Values
+
+            if ($Search -eq "Include" -or $Search -eq "Both") {
+                $plcomp_include = $plcomp_include | where {$_ -ne "$Subnet $Mask"}
+            }
+            if ($Search -eq "Exclude" -or $Search -eq "Both") {
+                $plcomp_exclude = $plcomp_exclude | where {$_ -ne "$Subnet $Mask"}
+            }
+
+            # Finally write changes back to the object
+            ($propslistcomponent | where {$_.PropertyListName -eq "Subnet Include"}).Values = $plcomp_include
+            ($propslistcomponent | where {$_.PropertyListName -eq "Subnet Exclude"}).Values = $plcomp_exclude
+
+            $NetworkDiscoveryComponent.PropLists = $propslistcomponent
+            $NetworkDiscoveryComponent.put() > $null
+
+            # Return a subnet type object representing the object just removed
+            $existing | Write-Output
         }
     }
 }
 Function Get-NetworkDiscoverySubnet
 {
+    # notes for help - any field may contain a * to do wildcard matching on the input field
+
     # Return a collection of objects which represent the currently configured subnets
     # User can then filter/modify these using builtins, and pipe them to New/Remove
+    # Optionally filter by properties
     [CmdletBinding()]
     Param (
         [string]
         [ValidateNotNullOrEmpty()] 
-            $SiteCode = "Auto"
+            $SiteCode = "Auto",
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $Subnet = "*",
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $Mask = "*",
+        [string]
+        [ValidateSet("Both", "Include", "Exclude")]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $Search = "Both"
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        # TODO
-        # for each item in each list, create subnet type object and write it to output
-        New-Object Object | 
-            Add-Member NoteProperty Subnet $sn -PassThru | 
-            Add-Member NoteProperty Mask $msk -PassThru | 
-            Add-Member NoteProperty Search $srch -PassThru | 
-            Write-Output
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+        $propslistcomponent = $NetworkDiscoveryComponent.PropLists
+
+        # 1. Look up all items which match the input parameters (or return all if no filtering requested)
+        if ($Search -ne "Include") {
+            $plcomp_exclude = ($propslistcomponent | where {$_.PropertyListName -eq "Subnet Exclude"}).Values
+
+            # Filter result set
+            $plcomp_exclude = $plcomp_exclude | where {$_ -like "$Subnet $Mask"}
+
+            # 2. Return subnet type object for each item
+            foreach ($item in $plcomp_exclude) {
+                if ($item -ne $null) {
+                    New-Object Object | 
+                        Add-Member NoteProperty Subnet $item.Split(" ")[0] -PassThru | 
+                        Add-Member NoteProperty Mask $item.Split(" ")[1] -PassThru | 
+                        Add-Member NoteProperty Search "Exclude" -PassThru | 
+                        Write-Output
+                }
+            }
+        }
+
+        if ($Search -ne "Exclude") {
+            $plcomp_include = ($propslistcomponent | where {$_.PropertyListName -eq "Subnet Include"}).Values
+
+            # Filter result set
+            $plcomp_include = $plcomp_include | where {$_ -like "$Subnet $Mask"}
+
+            # 2. Return subnet type object for each item
+            foreach ($item in $plcomp_include) {
+                if ($item -ne $null) {
+                    New-Object Object | 
+                        Add-Member NoteProperty Subnet $item.Split(" ")[0] -PassThru | 
+                        Add-Member NoteProperty Mask $item.Split(" ")[1] -PassThru | 
+                        Add-Member NoteProperty Search "Include" -PassThru | 
+                        Write-Output
+                }
+            }
+        }
     }
 }
 
