@@ -1858,6 +1858,76 @@ Function Remove-NetworkDiscoverySNMPCommunity
     }
 }
 
+# Filter (and save) a PropList
+Function Filter-PropList
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter,
+        $PropListName,
+        $Filter
+    )
+
+    $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
+
+    # Apply filter
+    $proplists = $WmiObject.PropLists
+    $proplist = ($proplists | where {$_.PropertyListName -eq $PropListName}).Values | where {$_ -ne $Filter}
+    ($proplists | where {$_.PropertyListName -eq $PropListName}).Values = $proplist
+
+    # Finally write changes back to the object
+    $WmiObject.PropLists = $proplists
+    $WmiObject.put() > $null
+}
+
+# Check if item exists in PropList
+Function Item-IsInPropList
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter,
+        $PropListName,
+        $CheckItem
+    )
+
+    $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
+
+    # Add item to proplist
+    $proplists = $WmiObject.PropLists
+    $proplist = ($proplists | where {$_.PropertyListName -eq $PropListName}).Values
+    if ($plcomp -contains $CommunityName) {
+        $true
+    } else {
+        $false
+    }
+}
+
+# Append item to PropList
+Function Add-ItemToPropList
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter,
+        $PropListName,
+        $NewItem
+    )
+
+    $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
+
+    # Add item to proplist
+    $proplists = $WmiObject.PropLists
+    $proplist = ($proplists | where {$_.PropertyListName -eq $PropListName}).Values
+    $proplist += $NewItem
+    ($proplists | where {$_.PropertyListName -eq $PropListName}).Values = $proplist
+
+    # Finally write changes back to the object
+    $WmiObject.PropLists = $proplists
+    $WmiObject.put() > $null
+}
+
 Function Get-NetworkDiscoverySNMPCommunity
 {
     [CmdletBinding()]
@@ -1904,34 +1974,17 @@ Function Add-NetworkDiscoverySNMPDevice
     Process {
         if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess($DeviceAddress)) {
-            # SNMP Devices are stored in two places (should be identical)
-            $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
-            $NetworkDiscoveryConfig = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Configuration -Filter "ItemName='SMS_NETWORK_DISCOVERY'"
-
-            $propslistcomponent = $NetworkDiscoveryComponent.PropLists
-            $propslistconfig = $NetworkDiscoveryConfig.PropLists
-
-            $plcomp = ($propslistcomponent | where {$_.PropertyListName -eq "Address Include"}).Values
-            $plconfig = ($propslistconfig | where {$_.PropertyListName -eq "Address Include"}).Values
-
             # Check uniqueness
-            if (-not $OverrideUnique -and $plcomp -contains $CommunityName) {
-                Write-Error "An SNMP Device with address: `"$DeviceAddress`" already exists! This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
+            if (-not $OverrideUnique -and (($Item-IsInPropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'" "Address Include" $DeviceAddress) -or ($Item-IsInPropList "root\SMS\site_$($SiteCode)" SMS_SCI_Configuration "ItemName='SMS_NETWORK_DISCOVERY'" "Address Include" $DeviceAddress))) {
+                Write-Error "An SNMP Device with address: `"$DeviceAddress`" already exists!"
+                Write-Error "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
                 # TODO ThrowTerminatingError
                 return
             }
 
-            $plcomp += $DeviceAddress
-            $plconfig += $DeviceAddress
-
-            # Write changes back to the object
-            ($propslistcomponent | where {$_.PropertyListName -eq "Address Include"}).Values = $plcomp
-            ($propslistconfig | where {$_.PropertyListName -eq "Address Include"}).Values = $plconfig
-
-            $NetworkDiscoveryComponent.PropLists = $propslistcomponent
-            $NetworkDiscoveryComponent.put() > $null
-            $NetworkDiscoveryConfig.PropLists = $propslistconfig
-            $NetworkDiscoveryConfig.put() > $null
+            # SNMP Devices are stored in two places (should be identical)
+            Add-ItemToPropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'" "Address Include" $DeviceAddress
+            Add-ItemToPropList "root\SMS\site_$($SiteCode)" SMS_SCI_Configuration "ItemName='SMS_NETWORK_DISCOVERY'" "Address Include" $DeviceAddress
 
             # Return an SNMP community type object representing the subnet just added
             New-Object Object | 
