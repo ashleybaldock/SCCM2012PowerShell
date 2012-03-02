@@ -1769,11 +1769,15 @@ Function Add-NetworkDiscoverySNMPCommunity
     Process {
         if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess($CommunityName)) {
+            # SNMP Community names are stored in two places (should be identical)
             $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+            $NetworkDiscoveryConfig = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Configuration -Filter "ItemName='SMS_NETWORK_DISCOVERY'"
 
             $propslistcomponent = $NetworkDiscoveryComponent.PropLists
+            $propslistconfig = $NetworkDiscoveryConfig.PropLists
 
             $plcomp = ($propslistcomponent | where {$_.PropertyListName -eq "Community Names"}).Values
+            $plconfig = ($propslistconfig | where {$_.PropertyListName -eq "Community Names"}).Values
 
             # Check uniqueness
             if (-not $OverrideUnique -and $plcomp -contains $CommunityName) {
@@ -1783,12 +1787,16 @@ Function Add-NetworkDiscoverySNMPCommunity
             }
 
             $plcomp += $CommunityName
+            $plconfig += $CommunityName
 
             # Write changes back to the object
             ($propslistcomponent | where {$_.PropertyListName -eq "Community Names"}).Values = $plcomp
+            ($propslistconfig | where {$_.PropertyListName -eq "Community Names"}).Values = $plconfig
 
             $NetworkDiscoveryComponent.PropLists = $propslistcomponent
             $NetworkDiscoveryComponent.put() > $null
+            $NetworkDiscoveryConfig.PropLists = $propslistconfig
+            $NetworkDiscoveryConfig.put() > $null
 
             # Return an SNMP community type object representing the subnet just added
             New-Object Object | 
@@ -1825,17 +1833,24 @@ Function Remove-NetworkDiscoverySNMPCommunity
 
         # 2. Confirm processing + proceed to remove
         if ($Force -or $pscmdlet.ShouldProcess($CommunityName)) {
+            # SNMP Community names are stored in two places (should be identical)
             $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+            $NetworkDiscoveryConfig = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Configuration -Filter "ItemName='SMS_NETWORK_DISCOVERY'"
 
             $propslistcomponent = $NetworkDiscoveryComponent.PropLists
+            $propslistconfig = $NetworkDiscoveryConfig.PropLists
 
             $plcomp = ($propslistcomponent | where {$_.PropertyListName -eq "Community Names"}).Values | where {$_ -ne $CommunityName}
+            $plconfig = ($propslistconfig | where {$_.PropertyListName -eq "Community Names"}).Values | where {$_ -ne $CommunityName}
 
             # Finally write changes back to the object
             ($propslistcomponent | where {$_.PropertyListName -eq "Community Names"}).Values = $plcomp
+            ($propslistconfig | where {$_.PropertyListName -eq "Community Names"}).Values = $plconfig
 
             $NetworkDiscoveryComponent.PropLists = $propslistcomponent
             $NetworkDiscoveryComponent.put() > $null
+            $NetworkDiscoveryConfig.PropLists = $propslistconfig
+            $NetworkDiscoveryConfig.put() > $null
 
             # Return a subnet type object representing the object(s) just removed
             $existing | Write-Output
@@ -1859,7 +1874,7 @@ Function Get-NetworkDiscoverySNMPCommunity
         $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
 
         # Obtain filtered result set
-        $plcomp = ($NetworkDiscoveryComponent.PropLists | where {$_.PropertyListName -eq "Community Names"}).Values | where {$_ -like "$CommunityName"}
+        $plcomp = ($NetworkDiscoveryComponent.PropLists | where {$_.PropertyListName -eq "Community Names"}).Values | where {$_ -like $CommunityName}
 
         foreach ($item in $plcomp) {
             if ($item -ne $null) {
@@ -1880,14 +1895,48 @@ Function Add-NetworkDiscoverySNMPDevice
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
-            $Force
+            $Force,
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [ValidateNotNullOrEmpty()]
+            $DeviceAddress
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        if ($Force -or $pscmdlet.ShouldProcess($DeviceAddress)) {
+            # SNMP Devices are stored in two places (should be identical)
+            $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+            $NetworkDiscoveryConfig = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Configuration -Filter "ItemName='SMS_NETWORK_DISCOVERY'"
+
+            $propslistcomponent = $NetworkDiscoveryComponent.PropLists
+            $propslistconfig = $NetworkDiscoveryConfig.PropLists
+
+            $plcomp = ($propslistcomponent | where {$_.PropertyListName -eq "Address Include"}).Values
+            $plconfig = ($propslistconfig | where {$_.PropertyListName -eq "Address Include"}).Values
+
+            # Check uniqueness
+            if (-not $OverrideUnique -and $plcomp -contains $CommunityName) {
+                Write-Error "An SNMP Device with address: `"$DeviceAddress`" already exists! This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
+                # TODO ThrowTerminatingError
+                return
+            }
+
+            $plcomp += $DeviceAddress
+            $plconfig += $DeviceAddress
+
+            # Write changes back to the object
+            ($propslistcomponent | where {$_.PropertyListName -eq "Address Include"}).Values = $plcomp
+            ($propslistconfig | where {$_.PropertyListName -eq "Address Include"}).Values = $plconfig
+
+            $NetworkDiscoveryComponent.PropLists = $propslistcomponent
+            $NetworkDiscoveryComponent.put() > $null
+            $NetworkDiscoveryConfig.PropLists = $propslistconfig
+            $NetworkDiscoveryConfig.put() > $null
+
+            # Return an SNMP community type object representing the subnet just added
+            New-Object Object | 
+                Add-Member NoteProperty DeviceAddress $DeviceAddress -PassThru | 
+                Write-Output
         }
     }
 }
@@ -1899,14 +1948,46 @@ Function Remove-NetworkDiscoverySNMPDevice
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
-            $Force
+            $Force,
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [ValidateNotNullOrEmpty()]
+            $DeviceAddress
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        # 1. Check if it already exists
+        $existing = Get-NetworkDiscoverySNMPDevice -SiteCode $SiteCode -DeviceAddress $DeviceAddress
+
+        if ($existing -eq $null) {
+            Write-Warning "The specified Network Discovery SNMP Device does not exist, and so cannot be deleted"
+            # TODO ThrowTerminatingError
+            return
+        }
+
+        # 2. Confirm processing + proceed to remove
+        if ($Force -or $pscmdlet.ShouldProcess($DeviceAddress)) {
+            # SNMP Community names are stored in two places (should be identical)
+            $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+            $NetworkDiscoveryConfig = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Configuration -Filter "ItemName='SMS_NETWORK_DISCOVERY'"
+
+            $propslistcomponent = $NetworkDiscoveryComponent.PropLists
+            $propslistconfig = $NetworkDiscoveryConfig.PropLists
+
+            $plcomp = ($propslistcomponent | where {$_.PropertyListName -eq "Address Include"}).Values | where {$_ -ne $DeviceAddress}
+            $plconfig = ($propslistconfig | where {$_.PropertyListName -eq "Address Include"}).Values | where {$_ -ne $DeviceAddress}
+
+            # Finally write changes back to the object
+            ($propslistcomponent | where {$_.PropertyListName -eq "Address Include"}).Values = $plcomp
+            ($propslistconfig | where {$_.PropertyListName -eq "Address Include"}).Values = $plconfig
+
+            $NetworkDiscoveryComponent.PropLists = $propslistcomponent
+            $NetworkDiscoveryComponent.put() > $null
+            $NetworkDiscoveryConfig.PropLists = $propslistconfig
+            $NetworkDiscoveryConfig.put() > $null
+
+            # Return a subnet type object representing the object(s) just removed
+            $existing | Write-Output
         }
     }
 }
@@ -1916,13 +1997,25 @@ Function Get-NetworkDiscoverySNMPDevice
     Param (
         [string]
         [ValidateNotNullOrEmpty()] 
-            $SiteCode = "Auto"
+            $SiteCode = "Auto",
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $DeviceAddress = "*",
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        # TODO
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+
+        # Obtain filtered result set
+        $plcomp = ($NetworkDiscoveryComponent.PropLists | where {$_.PropertyListName -eq "Address Include"}).Values | where {$_ -like $DeviceAddress}
+
+        foreach ($item in $plcomp) {
+            if ($item -ne $null) {
+                New-Object Object | 
+                    Add-Member NoteProperty DeviceAddress $item -PassThru | 
+                    Write-Output
+            }
+        }
     }
 }
 
@@ -1935,14 +2028,48 @@ Function Add-NetworkDiscoveryDHCP
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
-            $Force
+            $Force,
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [ValidateNotNullOrEmpty()]
+            $DHCPServer
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        if ($Force -or $pscmdlet.ShouldProcess($DHCPServer)) {
+            # SNMP Devices are stored in two places (should be identical)
+            $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+            $NetworkDiscoveryConfig = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Configuration -Filter "ItemName='SMS_NETWORK_DISCOVERY'"
+
+            $propslistcomponent = $NetworkDiscoveryComponent.PropLists
+            $propslistconfig = $NetworkDiscoveryConfig.PropLists
+
+            $plcomp = ($propslistcomponent | where {$_.PropertyListName -eq "DHCP Include"}).Values
+            $plconfig = ($propslistconfig | where {$_.PropertyListName -eq "DHCP Include"}).Values
+
+            # Check uniqueness
+            if (-not $OverrideUnique -and $plcomp -contains $CommunityName) {
+                Write-Error "A DHCP server with address: `"$DHCPServer`" already exists! This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
+                # TODO ThrowTerminatingError
+                return
+            }
+
+            $plcomp += $DHCPServer
+            $plconfig += $DHCPServer
+
+            # Write changes back to the object
+            ($propslistcomponent | where {$_.PropertyListName -eq "DHCP Include"}).Values = $plcomp
+            ($propslistconfig | where {$_.PropertyListName -eq "DHCP Include"}).Values = $plconfig
+
+            $NetworkDiscoveryComponent.PropLists = $propslistcomponent
+            $NetworkDiscoveryComponent.put() > $null
+            $NetworkDiscoveryConfig.PropLists = $propslistconfig
+            $NetworkDiscoveryConfig.put() > $null
+
+            # Return an SNMP community type object representing the subnet just added
+            New-Object Object | 
+                Add-Member NoteProperty DHCPServer $DHCPServer -PassThru | 
+                Write-Output
         }
     }
 }
@@ -1954,14 +2081,46 @@ Function Remove-NetworkDiscoveryDHCP
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
-            $Force
+            $Force,
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [ValidateNotNullOrEmpty()]
+            $DHCPServer
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        # 1. Check if it already exists
+        $existing = Get-NetworkDiscoveryDHCP -SiteCode $SiteCode -DHCPServer $DHCPServer
+
+        if ($existing -eq $null) {
+            Write-Warning "The specified Network Discovery DHCP Server does not exist, and so cannot be deleted"
+            # TODO ThrowTerminatingError
+            return
+        }
+
+        # 2. Confirm processing + proceed to remove
+        if ($Force -or $pscmdlet.ShouldProcess($DHCPServer)) {
+            # SNMP Community names are stored in two places (should be identical)
+            $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+            $NetworkDiscoveryConfig = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Configuration -Filter "ItemName='SMS_NETWORK_DISCOVERY'"
+
+            $propslistcomponent = $NetworkDiscoveryComponent.PropLists
+            $propslistconfig = $NetworkDiscoveryConfig.PropLists
+
+            $plcomp = ($propslistcomponent | where {$_.PropertyListName -eq "DHCP Include"}).Values | where {$_ -ne $DHCPServer}
+            $plconfig = ($propslistconfig | where {$_.PropertyListName -eq "DHCP Include"}).Values | where {$_ -ne $DHCPServer}
+
+            # Finally write changes back to the object
+            ($propslistcomponent | where {$_.PropertyListName -eq "DHCP Include"}).Values = $plcomp
+            ($propslistconfig | where {$_.PropertyListName -eq "DHCP Include"}).Values = $plconfig
+
+            $NetworkDiscoveryComponent.PropLists = $propslistcomponent
+            $NetworkDiscoveryComponent.put() > $null
+            $NetworkDiscoveryConfig.PropLists = $propslistconfig
+            $NetworkDiscoveryConfig.put() > $null
+
+            # Return a subnet type object representing the object(s) just removed
+            $existing | Write-Output
         }
     }
 }
@@ -1971,17 +2130,33 @@ Function Get-NetworkDiscoveryDHCP
     Param (
         [string]
         [ValidateNotNullOrEmpty()] 
-            $SiteCode = "Auto"
+            $SiteCode = "Auto",
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $DHCPServer = "*",
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        # TODO
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
+
+        # Obtain filtered result set
+        $plcomp = ($NetworkDiscoveryComponent.PropLists | where {$_.PropertyListName -eq "DHCP Include"}).Values | where {$_ -like $DHCPServer}
+
+        foreach ($item in $plcomp) {
+            if ($item -ne $null) {
+                New-Object Object | 
+                    Add-Member NoteProperty DHCPServer $item -PassThru | 
+                    Write-Output
+            }
+        }
     }
 }
 
 # Schedules
+# Stored as a Property, not a PropertyList
+# Property is a single string made by concatenating Schedule strings together
+# (each schedule string is 16chars long, so you can split them up based on that)
+# Should return Schedule objects, and take the same
 Function Add-NetworkDiscoverySchedule
 {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
@@ -1992,13 +2167,14 @@ Function Add-NetworkDiscoverySchedule
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
-        }
+        # TODO
+        # Read string, split into 16 character sections
+        # Convert the supplied schedule into a string
+        ## Compare against each of the split sections (uniqueness check)
+        # If unique, add new schedule string to the end of the list
+        # Write back
+        ## Else prompt/error
     }
 }
 Function Remove-NetworkDiscoverySchedule
@@ -2011,13 +2187,12 @@ Function Remove-NetworkDiscoverySchedule
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
-        }
+        # TODO
+        # Read string, split into 16 character sections
+        # Convert supplied schedule into a string
+        ## Filter split sections based on input string to remove matching (exact match only)
+        # Write back
     }
 }
 Function Get-NetworkDiscoverySchedule
@@ -2028,29 +2203,11 @@ Function Get-NetworkDiscoverySchedule
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto"
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
         # TODO
-    }
-}
-Function Set-NetworkDiscoverySchedule
-{
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
-    Param (
-        [string]
-        [ValidateNotNullOrEmpty()] 
-            $SiteCode = "Auto",
-        [switch]
-            $Force
-    )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
-    Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
-        }
+        # Read string, split into 16 character sections
+        # Return either a list of all the schedules
+        ## Or just a single match (exact match only)
+        ### TODO extend this to permit matching based on schedule attributes?
     }
 }
