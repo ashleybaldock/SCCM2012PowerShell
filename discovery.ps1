@@ -77,6 +77,18 @@ Function Add-ItemToPropList
 }
 
 # Get the current value of a Property
+Function Get-WmiPropValue
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter,
+        $PropName
+    )
+    $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
+    ($WmiObject.Props | where {$_.PropertyName -eq $PropName}).Value
+}
+# Get the current value of a Property
 Function Get-WmiPropValue1
 {
     Param (
@@ -85,12 +97,36 @@ Function Get-WmiPropValue1
         $WmiObjectFilter,
         $PropName
     )
-
     $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
-
     ($WmiObject.Props | where {$_.PropertyName -eq $PropName}).Value1
 }
+# Get the current value of a Property
+Function Get-WmiPropValue2
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter,
+        $PropName
+    )
+    $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
+    ($WmiObject.Props | where {$_.PropertyName -eq $PropName}).Value2
+}
 
+# Set the current value of a Property
+Function Set-WmiPropValue
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter,
+        $PropName,
+        $NewPropValue
+    )
+    $props = Get-WmiProps $WmiObjectNamespace $WmiObjectClass $WmiObjectFilter
+    ($props | where {$_.PropertyName -eq $PropName}).Value = $NewPropValue
+    Set-WmiProps $WmiObjectNamespace $WmiObjectClass $WmiObjectFilter $props
+}
 # Set the current value of a Property
 Function Set-WmiPropValue1
 {
@@ -101,11 +137,22 @@ Function Set-WmiPropValue1
         $PropName,
         $NewPropValue
     )
-
     $props = Get-WmiProps $WmiObjectNamespace $WmiObjectClass $WmiObjectFilter
-
     ($props | where {$_.PropertyName -eq $PropName}).Value1 = $NewPropValue
-
+    Set-WmiProps $WmiObjectNamespace $WmiObjectClass $WmiObjectFilter $props
+}
+# Set the current value of a Property
+Function Set-WmiPropValue2
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter,
+        $PropName,
+        $NewPropValue
+    )
+    $props = Get-WmiProps $WmiObjectNamespace $WmiObjectClass $WmiObjectFilter
+    ($props | where {$_.PropertyName -eq $PropName}).Value2 = $NewPropValue
     Set-WmiProps $WmiObjectNamespace $WmiObjectClass $WmiObjectFilter $props
 }
 
@@ -117,9 +164,7 @@ Function Get-WmiProps
         $WmiObjectClass,
         $WmiObjectFilter
     )
-
     $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
-
     $WmiObject.Props
 }
 
@@ -132,9 +177,7 @@ Function Set-WmiProps
         $WmiObjectFilter,
         $NewProps
     )
-
     $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
-
     $WmiObject.Props = $NewProps
     $WmiObject.Put()
 }
@@ -159,12 +202,10 @@ Function Enable-ADForestDiscovery
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            Set-ADForestDiscovery -SiteCode $SiteCode -Enable $true -Force
+            Set-ADForestDiscovery -SiteCode $SiteCode -Enabled "Yes" -Force
         }
     }
 }
@@ -178,12 +219,10 @@ Function Disable-ADForestDiscovery
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            Set-ADForestDiscovery -SiteCode $SiteCode -Enable $false -Force
+            Set-ADForestDiscovery -SiteCode $SiteCode -Enabled "No" -Force
         }
     }
 }
@@ -196,45 +235,48 @@ Function Set-ADForestDiscovery
             $SiteCode = "Auto",
         [switch]
             $Force,
-        [switch]
-            $Enabled = $null,
         [string]
-            $Schedule,
-        [switch]
-            $CreateSiteBoundaries = $null,
-        [switch]
-            $CreateSubnetBoundaries = $null
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $Enabled = "Ignore",
+        [string]
+            $Schedule = "None",
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $CreateSiteBoundaries = "Ignore",
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $CreateSubnetBoundaries = "Ignore"
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            $ADForestDiscoveryManager = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_AD_FOREST_DISCOVERY_MANAGER'"
-
-            $propstemp = $ADForestDiscoveryManager.Props
-
-            foreach ($prop in $propstemp) {
-                if ($Enable -ne $null -and $prop.PropertyName -eq "SETINGS") {
-                    if ($Enable -eq $true) { $prop.Value1 = "ACTIVE" }
-                    if ($Enable -eq $false) { $prop.Value1 = "INACTIVE" }
-                }
-                if ($Schedule -ne "" -and $prop.PropertyName -eq "Startup Schedule") {
-                    $prop.Value1 = $Schedule
-                }
-                if ($CreateSiteBoundaries -ne $null -and $Prop.PropertyName -eq "Enable AD Site Boundary Creation") {
-                    if ($CreateSiteBoundaries -eq $true) { $prop.Value = 1 }
-                    if ($CreateSiteBoundaries -eq $false) { $prop.Value = 0 }
-                }
-                if ($CreateSubnetBoundaries -ne $null -and $Prop.PropertyName -eq "Enable Subnet Boundary Creation") {
-                    if ($CreateSubnetBoundaries -eq $true) { $prop.Value = 1 }
-                    if ($CreateSubnetBoundaries -eq $false) { $prop.Value = 0 }
-                }
+            # Basic settings
+            if ($Enabled -eq "Yes") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_FOREST_DISCOVERY_MANAGER'" "SETTINGS" "ACTIVE"
+            }
+            if ($Enabled -eq "No") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_FOREST_DISCOVERY_MANAGER'" "SETTINGS" "INACTIVE"
+            }
+            if ($Schedule -ne "None") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_FOREST_DISCOVERY_MANAGER'" "Startup Schedule" $Schedule
             }
 
-            # Finally write changes back to the object
-            $ADForestDiscoveryManager.Props = $propstemp
-            $ADForestDiscoveryManager.put()
+            # Site Boundary Creation
+            if ($CreateSiteBoundaries -eq "Yes") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_FOREST_DISCOVERY_MANAGER'" "Enable AD Site Boundary Creation" 1
+            if ($DiscoverDistributionGroups -eq "No") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_FOREST_DISCOVERY_MANAGER'" "Enable AD Site Boundary Creation" 0
+            }
+
+            # Subnet Boundary Creation
+            if ($CreateSubnetBoundaries -eq "Yes") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_FOREST_DISCOVERY_MANAGER'" "Enable Subnet Boundary Creation" 1
+            if ($DiscoverDistributionGroups -eq "No") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_FOREST_DISCOVERY_MANAGER'" "Enable Subnet Boundary Creation" 0
+            }
         }
     }
 }
@@ -270,12 +312,10 @@ Function Enable-ADGroupDiscovery
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            Set-ADGroupDiscovery -SiteCode $SiteCode -Enable $true -Force
+            Set-ADGroupDiscovery -SiteCode $SiteCode -Enabled "Yes" -Force
         }
     }
 }
@@ -289,12 +329,10 @@ Function Disable-ADGroupDiscovery
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            Set-ADGroupDiscovery -SiteCode $SiteCode -Enable $false -Force
+            Set-ADGroupDiscovery -SiteCode $SiteCode -Enabled "No" -Force
         }
     }
 }
@@ -307,29 +345,39 @@ Function Set-ADGroupDiscovery
             $SiteCode = "Auto",
         [switch]
             $Force,
-        [switch]
-            $Enabled = $null,
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $Enabled = "Ignore",
         [string]
             $FullSyncSchedule = "None",
-        [switch]
-            $EnableDelta = $null,
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $DeltaEnabled = "Ignore",
         [int] # mins
         [ValidateRange(5,60)]
             $DeltaInterval = $null,
-        [switch]
-            $FilterExpiredLogon = $null,
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $FilterExpiredLogons = "Ignore",
         [int] # days
         [ValidateRange(14,720)]
             $DaysSinceLastLogon = $null,
-        [switch]
-            $FilterExpiredPassword = $null,
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $FilterExpiredPasswords = "Ignore",
         [int] # days
         [ValidateRange(30,720)]
             $DaysSinceLastPassword = $null,
-        [switch]
-            $DistributionGroupDiscover = $null
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $DiscoverDistributionGroups = "Ignore"
     )
-    Begin {
+    Process {
         if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
 
         # If $DeltaInterval is not $null, create a new schedule object from it
@@ -339,60 +387,56 @@ Function Set-ADGroupDiscovery
             $td = Get-Date
             $DeltaInterval = New-IntervalString -Start $td -MinuteSpan $DeltaInterval
         }
-    }
-    Process {
+
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            $ADGroupDiscoveryManager = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'"
-
-            $propstemp = $ADGroupDiscoveryManager.Props
-
-            foreach ($prop in $propstemp) {
-                # Basic settings
-                if ($Enable -ne $null -and $prop.PropertyName -eq "SETINGS") {
-                    if ($Enable -eq $true) { $prop.Value1 = "ACTIVE" }
-                    if ($Enable -eq $false) { $prop.Value1 = "INACTIVE" }
-                }
-                if ($FullSyncSchedule -ne "None" -and $prop.PropertyName -eq "Full Sync Schedule") {
-                    $prop.Value1 = $FullSyncSchedule
-                }
-
-                # Delta discovery
-                if ($EnableDelta -ne $null -and $Prop.PropertyName -eq "Enable Incremental Sync") {
-                    if ($EnableDelta -eq $true) { $prop.Value = 1 }
-                    if ($EnableDelta -eq $false) { $prop.Value = 0 }
-                }
-                if ($DeltaInterval -ne $null -and $prop.PropertyName -eq "Startup Schedule") {
-                    $prop.Value1 = $DeltaInterval
-                }
-
-                # Last logon filter
-                if ($FilterExpiredLogon -ne $null -and $Prop.PropertyName -eq "Enable Filtering Expired Logon") {
-                    if ($FilterExpiredLogon -eq $true) { $prop.Value = 1 }
-                    if ($FilterExpiredLogon -eq $false) { $prop.Value = 0 }
-                }
-                if ($DaysSinceLastLogon -ne $null -and $prop.PropertyName -eq "Days Since Last Logon") {
-                    $prop.Value = $DaysSinceLastLogon
-                }
-
-                # Machine account password expiry filter
-                if ($FilterExpiredPassword -ne $null -and $Prop.PropertyName -eq "Enable Filtering Expired Password") {
-                    if ($FilterExpiredPassword -eq $true) { $prop.Value = 1 }
-                    if ($FilterExpiredPassword -eq $false) { $prop.Value = 0 }
-                }
-                if ($DaysSinceLastPassword -ne $null -and $prop.PropertyName -eq "Days Since Last Password Set") {
-                    $prop.Value = $DaysSinceLastPassword
-                }
-
-                # Distribution group discovery
-                if ($DistributionGroupDiscover -ne $null -and $Prop.PropertyName -eq "Discover DG Membership") {
-                    if ($DistributionGroupDiscover -eq $true) { $prop.Value = 1 }
-                    if ($DistributionGroupDiscover -eq $false) { $prop.Value = 0 }
-                }
+            # Basic settings
+            if ($Enabled -eq "Yes") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "SETTINGS" "ACTIVE"
+            }
+            if ($Enabled -eq "No") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "SETTINGS" "INACTIVE"
+            }
+            if ($FullSyncSchedule -ne "None") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Full Sync Schedule" $FullSyncSchedule
             }
 
-            # Finally write changes back to the object
-            $ADGroupDiscoveryManager.Props = $propstemp
-            $ADGroupDiscoveryManager.put()
+            # Delta discovery
+            if ($DeltaEnabled -eq "Yes") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Enable Incremental Sync" 1
+            }
+            if ($DeltaEnabled -eq "No") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Enable Incremental Sync" 0
+            }
+            if ($DeltaInterval -ne $null) {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Startup Schedule" $DeltaInterval
+            }
+
+            # Last logon filter
+            if ($FilterExpiredLogons -eq "Yes") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Enable Filtering Expired Logon" 1
+            if ($FilterExpiredLogons -eq "No") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Enable Filtering Expired Logon" 0
+            }
+            if ($DaysSinceLastLogon -ne $null) {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Days Since Last Logon" $DaysSinceLastLogon
+            }
+
+            # Machine account password expiry filter
+            if ($FilterExpiredPasswords -eq "Yes") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Enable Filtering Expired Password" 1
+            if ($FilterExpiredPasswords -eq "No") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Enable Filtering Expired Password" 0
+            }
+            if ($DaysSinceLastPassword -ne $null) {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Days Since Last Password Set" $DaysSinceLastPassword
+            }
+
+            # Distribution group discovery
+            if ($DiscoverDistributionGroups -eq "Yes") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Discover DG Membership" 1
+            if ($DiscoverDistributionGroups -eq "No") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Discover DG Membership" 0
+            }
         }
     }
 }
@@ -594,12 +638,10 @@ Function Enable-ADSystemDiscovery
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            Set-ADSystemDiscovery -SiteCode $SiteCode -Enable $true -Force
+            Set-ADSystemDiscovery -SiteCode $SiteCode -Enabled "Yes" -Force
         }
     }
 }
@@ -613,12 +655,10 @@ Function Disable-ADSystemDiscovery
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            Set-ADSystemDiscovery -SiteCode $SiteCode -Enable $false -Force
+            Set-ADSystemDiscovery -SiteCode $SiteCode -Enabled "No" -Force
         }
     }
 }
@@ -631,27 +671,35 @@ Function Set-ADSystemDiscovery
             $SiteCode = "Auto",
         [switch]
             $Force,
-        [switch]
-            $Enabled = $null,
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $Enabled = "Ignore",
         [string]
             $FullSyncSchedule = "None",
-        [switch]
-            $EnableDelta = $null,
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $DeltaEnabled = "Ignore",
         [int] # mins
         [ValidateRange(5,60)]
             $DeltaInterval = $null,
-        [switch]
-            $FilterExpiredLogon = $null,
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $FilterExpiredLogons = "Ignore",
         [int] # days
         [ValidateRange(14,720)]
             $DaysSinceLastLogon = $null,
-        [switch]
-            $FilterExpiredPassword = $null,
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $FilterExpiredPasswords = "Ignore",
         [int] # days
         [ValidateRange(30,720)]
             $DaysSinceLastPassword = $null
     )
-    Begin {
+    Process {
         if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
 
         # If $DeltaInterval is not $null, create a new schedule object from it
@@ -661,53 +709,49 @@ Function Set-ADSystemDiscovery
             $td = Get-Date
             $DeltaInterval = New-IntervalString -Start $td -MinuteSpan $DeltaInterval
         }
-    }
-    Process {
+
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            $ADSystemDiscoveryManager = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'"
-            $propstemp = $ADSystemDiscoveryManager.Props
-
-            foreach ($prop in $propstemp) {
-                # Basic settings
-                if ($Enable -ne $null -and $prop.PropertyName -eq "SETINGS") {
-                    if ($Enable -eq $true) { $prop.Value1 = "ACTIVE" }
-                    if ($Enable -eq $false) { $prop.Value1 = "INACTIVE" }
-                }
-                if ($FullSyncSchedule -ne "None" -and $prop.PropertyName -eq "Full Sync Schedule") {
-                    $prop.Value1 = $FullSyncSchedule
-                }
-
-                # Delta discovery
-                if ($EnableDelta -ne $null -and $Prop.PropertyName -eq "Enable Incremental Sync") {
-                    if ($EnableDelta -eq $true) { $prop.Value = 1 }
-                    if ($EnableDelta -eq $false) { $prop.Value = 0 }
-                }
-                if ($DeltaInterval -ne $null -and $prop.PropertyName -eq "Startup Schedule") {
-                    $prop.Value1 = $DeltaInterval
-                }
-
-                # Last logon filter
-                if ($FilterExpiredLogon -ne $null -and $Prop.PropertyName -eq "Enable Filtering Expired Logon") {
-                    if ($FilterExpiredLogon -eq $true) { $prop.Value = 1 }
-                    if ($FilterExpiredLogon -eq $false) { $prop.Value = 0 }
-                }
-                if ($DaysSinceLastLogon -ne $null -and $prop.PropertyName -eq "Days Since Last Logon") {
-                    $prop.Value = $DaysSinceLastLogon
-                }
-
-                # Machine account password expiry filter
-                if ($FilterExpiredPassword -ne $null -and $Prop.PropertyName -eq "Enable Filtering Expired Password") {
-                    if ($FilterExpiredPassword -eq $true) { $prop.Value = 1 }
-                    if ($FilterExpiredPassword -eq $false) { $prop.Value = 0 }
-                }
-                if ($DaysSinceLastPassword -ne $null -and $prop.PropertyName -eq "Days Since Last Password Set") {
-                    $prop.Value = $DaysSinceLastPassword
-                }
+            # Basic settings
+            if ($Enabled -eq "Yes") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "SETTINGS" "ACTIVE"
+            }
+            if ($Enabled -eq "No") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "SETTINGS" "INACTIVE"
+            }
+            if ($FullSyncSchedule -ne "None") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "Full Sync Schedule" $FullSyncSchedule
             }
 
-            # Finally write changes back to the object
-            $ADSystemDiscoveryManager.Props = $propstemp
-            $ADSystemDiscoveryManager.put()
+            # Delta discovery
+            if ($DeltaEnabled -eq "Yes") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "Enable Incremental Sync" 1
+            }
+            if ($DeltaEnabled -eq "No") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "Enable Incremental Sync" 0
+            }
+            if ($DeltaInterval -ne $null) {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "Startup Schedule" $DeltaInterval
+            }
+
+            # Last logon filter
+            if ($FilterExpiredLogons -eq "Yes") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "Enable Filtering Expired Logon" 1
+            if ($FilterExpiredLogons -eq "No") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "Enable Filtering Expired Logon" 0
+            }
+            if ($DaysSinceLastLogon -ne $null) {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "Days Since Last Logon" $DaysSinceLastLogon
+            }
+
+            # Machine account password expiry filter
+            if ($FilterExpiredPasswords -eq "Yes") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "Enable Filtering Expired Password" 1
+            if ($FilterExpiredPasswords -eq "No") {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "Enable Filtering Expired Password" 0
+            }
+            if ($DaysSinceLastPassword -ne $null) {
+                Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "Days Since Last Password Set" $DaysSinceLastPassword
+            }
         }
     }
 }
@@ -722,10 +766,8 @@ Function Add-ADSystemDiscoveryContainer
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
             # TODO
         }
@@ -741,10 +783,8 @@ Function Remove-ADSystemDiscoveryContainer
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
             # TODO
         }
@@ -758,10 +798,8 @@ Function Get-ADSystemDiscoveryContainer
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto"
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         # TODO
     }
 }
@@ -775,10 +813,8 @@ Function Set-ADSystemDiscoveryContainer
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
             # TODO
         }
@@ -795,10 +831,8 @@ Function Add-ADSystemDiscoveryAttribute
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
             # TODO
         }
@@ -814,10 +848,8 @@ Function Remove-ADSystemDiscoveryAttribute
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
             # TODO
         }
@@ -831,10 +863,8 @@ Function Get-ADSystemDiscoveryAttribute
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto"
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         # TODO
     }
 }
@@ -848,10 +878,8 @@ Function Set-ADSystemDiscoveryAttribute
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
             # TODO
         }
@@ -887,12 +915,10 @@ Function Enable-ADUserDiscovery
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            Set-ADUserDiscovery -SiteCode $SiteCode -Enable $true -Force
+            Set-ADUserDiscovery -SiteCode $SiteCode -Enabled "Yes" -Force
         }
     }
 }
@@ -906,12 +932,10 @@ Function Disable-ADUserDiscovery
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            Set-ADUserDiscovery -SiteCode $SiteCode -Enable $false -Force
+            Set-ADUserDiscovery -SiteCode $SiteCode -Enabled "No" -Force
         }
     }
 }
@@ -924,17 +948,21 @@ Function Set-ADUserDiscovery
             $SiteCode = "Auto",
         [switch]
             $Force,
-        [switch]
-            $Enabled = $null,
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $Enabled = "Ignore",
         [string]
             $FullSyncSchedule = "None",
-        [switch]
-            $EnableDelta = $null,
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $DeltaEnabled = "Ignore",
         [int] # mins
         [ValidateRange(5,60)]
             $DeltaInterval = $null
     )
-    Begin {
+    Process {
         if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
 
         # If $DeltaInterval is not $null, create a new schedule object from it
@@ -944,36 +972,29 @@ Function Set-ADUserDiscovery
             $td = Get-Date
             $DeltaInterval = New-IntervalString -Start $td -MinuteSpan $DeltaInterval
         }
-    }
-    Process {
+
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            $ADUserDiscoveryManager = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'"
-
-            $propstemp = $ADUserDiscoveryManager.Props
-
-            foreach ($prop in $propstemp) {
-                # Basic settings
-                if ($Enable -ne $null -and $prop.PropertyName -eq "SETINGS") {
-                    if ($Enable -eq $true) { $prop.Value1 = "ACTIVE" }
-                    if ($Enable -eq $false) { $prop.Value1 = "INACTIVE" }
-                }
-                if ($FullSyncSchedule -ne "None" -and $prop.PropertyName -eq "Full Sync Schedule") {
-                    $prop.Value1 = $FullSyncSchedule
-                }
-
-                # Delta discovery
-                if ($EnableDelta -ne $null -and $Prop.PropertyName -eq "Enable Incremental Sync") {
-                    if ($EnableDelta -eq $true) { $prop.Value = 1 }
-                    if ($EnableDelta -eq $false) { $prop.Value = 0 }
-                }
-                if ($DeltaInterval -ne $null -and $prop.PropertyName -eq "Startup Schedule") {
-                    $prop.Value1 = $DeltaInterval
-                }
+            # Basic settings
+            if ($Enabled -eq "Yes") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "SETINGS" "ACTIVE"
+            }
+            if ($Enabled -eq "No") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "SETINGS" "INACTIVE"
+            }
+            if ($FullSyncSchedule -ne "None") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Full Sync Schedule" $FullSyncSchedule
             }
 
-            # Finally write changes back to the object
-            $ADUserDiscoveryManager.Props = $propstemp
-            $ADUserDiscoveryManager.put()
+            # Delta discovery
+            if ($DeltaEnabled -eq "Yes") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Enable Incremental Sync" 1
+            }
+            if ($DeltaEnabled -eq "No") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Enable Incremental Sync" 0
+            }
+            if ($DeltaInterval -ne $null) {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Startup Schedule" $DeltaInterval
+            }
         }
     }
 }
@@ -988,10 +1009,8 @@ Function Add-ADUserDiscoveryContainer
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
             # TODO
         }
@@ -1007,10 +1026,8 @@ Function Remove-ADUserDiscoveryContainer
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
             # TODO
         }
@@ -1024,10 +1041,8 @@ Function Get-ADUserDiscoveryContainer
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto"
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         # TODO
     }
 }
@@ -1041,10 +1056,8 @@ Function Set-ADUserDiscoveryContainer
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
             # TODO
         }
@@ -1061,10 +1074,8 @@ Function Add-ADUserDiscoveryAttribute
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
             # TODO
         }
@@ -1080,10 +1091,8 @@ Function Remove-ADUserDiscoveryAttribute
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
             # TODO
         }
@@ -1097,10 +1106,8 @@ Function Get-ADUserDiscoveryAttribute
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto"
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         # TODO
     }
 }
@@ -1114,10 +1121,8 @@ Function Set-ADUserDiscoveryAttribute
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
             # TODO
         }
@@ -1140,12 +1145,10 @@ Function Enable-HeartbeatDiscovery
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            Set-HeartbeatDiscovery -SiteCode $SiteCode -Enable $true -Force
+            Set-HeartbeatDiscovery -SiteCode $SiteCode -Enabled "Yes" -Force
         }
     }
 }
@@ -1159,12 +1162,10 @@ Function Disable-HeartbeatDiscovery
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            Set-HeartbeatDiscovery -SiteCode $SiteCode -Enable $false -Force
+            Set-HeartbeatDiscovery -SiteCode $SiteCode -Enabled "No" -Force
         }
     }
 }
@@ -1177,45 +1178,33 @@ Function Set-HeartbeatDiscovery
             $SiteCode = "Auto",
         [switch]
             $Force,
-        [switch]
-            $Enabled = $null,
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $Enabled = "Ignore",
         [string]
             $Schedule = "None"
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            # First configure under SMS_SCI_Component -> ComponentName='SMS_SITE_CONTROL_MANAGER'
-            $ADHeartbeatDiscovery = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_SITE_CONTROL_MANAGER'"
-            $propstemp = $ADHeartbeatDiscovery.Props
 
-            foreach ($prop in $propstemp) {
-                if ($Schedule -ne "None" -and $prop.PropertyName -eq "Heartbeat Site Control File Schedule") {
-                    $prop.Value1 = $Schedule
-                }
+            # First configure schedule under SMS_SCI_Component -> ComponentName='SMS_SITE_CONTROL_MANAGER'
+            if ($Schedule -ne "None") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_SITE_CONTROL_MANAGER'" "Heartbeat Site Control File Schedule" $Schedule
             }
-
-            $ADHeartbeatDiscovery.Props = $propstemp
-            $ADHeartbeatDiscovery.put()
 
             # Second configure under SMS_SCI_ClientConfig -> ItemName='Client Properties'
-            $ADHeartbeatDiscovery = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_ClientConfig -Filter "ItemName='Client Properties'"
-            $propstemp = $ADHeartbeatDiscovery.Props
-
-            foreach ($prop in $propstemp) {
-                if ($Enable -ne $null -and $prop.PropertyName -eq "Enable Heartbeat DDR") {
-                    if ($Enable -eq $true) { $prop.Value = 1 }
-                    if ($Enable -eq $false) { $prop.Value = 0 }
-                }
-                if ($Schedule -ne "None" -and $prop.PropertyName -eq "DDR Refresh Interval") {
-                    $prop.Value2 = $Schedule
-                }
+            if ($Enabled -eq "Yes") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_ClientConfig "ItemName='Client Properties'" "Enable Heartbeat DDR" 1
+            }
+            if ($Enabled -eq "No") {
+                Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_ClientConfig "ItemName='Client Properties'" "Enable Heartbeat DDR" 0
             }
 
-            $ADHeartbeatDiscovery.Props = $propstemp
-            $ADHeartbeatDiscovery.put()
+            if ($Schedule -ne "None")
+                Set-WmiPropValue2 "root\SMS\site_$($SiteCode)" SMS_SCI_ClientConfig "ItemName='Client Properties'" "DDR Refresh Interval" $Schedule
+            }
         }
     }
 }
@@ -1270,12 +1259,10 @@ Function Enable-NetworkDiscovery
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            Set-NetworkDiscovery -SiteCode $SiteCode -Enable $true -Force
+            Set-NetworkDiscovery -SiteCode $SiteCode -Enabled "Yes" -Force
         }
     }
 }
@@ -1289,12 +1276,10 @@ Function Disable-NetworkDiscovery
         [switch]
             $Force
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            Set-NetworkDiscovery -SiteCode $SiteCode -Enable $false -Force
+            Set-NetworkDiscovery -SiteCode $SiteCode -Enabled "No" -Force
         }
     }
 }
@@ -1307,39 +1292,45 @@ Function Set-NetworkDiscovery
             $SiteCode = "Auto",
         [switch]
             $Force,
-        [switch]
-            $Enabled = $false,
-        [switch]
-            $Disabled = $false,
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $Enabled = "Ignore",
         [ValidateCount(0,1)]
         [ValidateSet("Topology", "TopologyAndClient", "ToplologyClientAndOS")]
             $Type = "None",
-        [switch]
-            $SlowNetwork = $null,
-        [switch]
-            $SearchLocalSubnets = $null,
-        [switch]
-            $SearchLocalDomain = $null,
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $SlowNetwork = "Ignore",
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $SearchLocalSubnets = "Ignore",
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $SearchLocalDomain = "Ignore",
         [int]
         [ValidateRange(0,10)]
-            $SNMPMaxHops = $null,
-        [switch]
-            $SearchLocalDHCP = $null
+            $SNMPMaxHops = -1,
+        [string]
+        [ValidateCount(0,1)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $SearchLocalDHCP = "Ignore"
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
             $propstempcomponent = Get-WmiProps "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'"
             $propstempconfig = Get-WmiProps "root\SMS\site_$($SiteCode)" SMS_SCI_Configuration "ItemName='SMS_NETWORK_DISCOVERY'"
 
             # Set enabled (may be null)
-            if ($Enabled -eq $true) {
+            if ($Enabled -eq "Yes") {
                 ($propstempcomponent | where {$_.PropertyName -eq "Discovery Enabled"}).Value1 = "TRUE"
                 ($propstempconfig | where {$_.PropertyName -eq "Discovery Enabled"}).Value1 = "TRUE"
             }
-            if ($Disabled -eq $true) {
+            if ($Enabled -eq "No") {
                 ($propstempcomponent | where {$_.PropertyName -eq "Discovery Enabled"}).Value1 = "FALSE"
                 ($propstempconfig | where {$_.PropertyName -eq "Discovery Enabled"}).Value1 = "FALSE"
             }
@@ -1366,43 +1357,43 @@ Function Set-NetworkDiscovery
             }
 
             # Local subnet search
-            if ($SearchLocalSubnets -eq $true) {
+            if ($SearchLocalSubnets -eq "Yes") {
                 ($propstempcomponent | where {$_.PropertyName -eq "Subnet Include Local"}).Value1 = "TRUE"
                 ($propstempconfig | where {$_.PropertyName -eq "Subnet Include Local"}).Value1 = "TRUE"
             }
-            if ($SearchLocalSubnets -eq $false) {
+            if ($SearchLocalSubnets -eq "No") {
                 ($propstempcomponent | where {$_.PropertyName -eq "Subnet Include Local"}).Value1 = "FALSE"
                 ($propstempconfig | where {$_.PropertyName -eq "Subnet Include Local"}).Value1 = "FALSE"
             }
 
             # Local domain search
-            if ($SearchLocalDomain -eq $true) {
+            if ($SearchLocalDomain -eq "Yes") {
                 ($propstempcomponent | where {$_.PropertyName -eq "Domain Include Local"}).Value1 = "TRUE"
                 ($propstempconfig | where {$_.PropertyName -eq "Domain Include Local"}).Value1 = "TRUE"
             }
-            if ($SearchLocalDomain -eq $false) {
+            if ($SearchLocalDomain -eq "No") {
                 ($propstempcomponent | where {$_.PropertyName -eq "Domain Include Local"}).Value1 = "FALSE"
                 ($propstempconfig | where {$_.PropertyName -eq "Domain Include Local"}).Value1 = "FALSE"
             }
 
             # Local DHCP search
-            if ($SearchLocalDHCP -eq $true) {
+            if ($SearchLocalDHCP -eq "Yes") {
                 ($propstempcomponent | where {$_.PropertyName -eq "DHCP Include Local"}).Value1 = "TRUE"
                 ($propstempconfig | where {$_.PropertyName -eq "DHCP Include Local"}).Value1 = "TRUE"
             }
-            if ($SearchLocalDHCP -eq $false) {
+            if ($SearchLocalDHCP -eq "No") {
                 ($propstempcomponent | where {$_.PropertyName -eq "DHCP Include Local"}).Value1 = "FALSE"
                 ($propstempconfig | where {$_.PropertyName -eq "DHCP Include Local"}).Value1 = "FALSE"
             }
 
             # SNMP max hops
-            if ($SNMPMaxHops -ne $null) {
+            if ($SNMPMaxHops -gt -1) {
                 ($propstempcomponent | where {$_.PropertyName -eq "Router Hop Count"}).Value1 = $SNMPMaxHops
                 ($propstempconfig | where {$_.PropertyName -eq "Router Hop Count"}).Value1 = $SNMPMaxHops
             }
 
             # Set multiple options for network speed
-            if ($SlowNetwork -eq $true) {
+            if ($SlowNetwork -eq "Yes") {
                 ($propstempconfig | where {$_.PropertyName -eq "Network Speed"}).Value1 = "Slow"
 
                 ($propstempcomponent | where {$_.PropertyName -eq "ICMP Ping Timeout"}).Value1 = ($propstempconfig | where {$_.PropertyName -eq "ICMP Ping Timeout - SLOW"}).Value1
@@ -1425,7 +1416,7 @@ Function Set-NetworkDiscovery
                     ($propstempconfig | where {$_.PropertyName -eq "NetToMediaTable Retrieval"}).Value1 = ($propstempconfig | where {$_.PropertyName -eq "NetToMediaTable Retrieval - SLOW"}).Value1
                 }
             }
-            if ($SlowNetwork -eq $false) {
+            if ($SlowNetwork -eq "No") {
                 ($propstempconfig | where {$_.PropertyName -eq "Network Speed"}).Value1 = "Fast"
 
                 ($propstempcomponent | where {$_.PropertyName -eq "ICMP Ping Timeout"}).Value1 = ($propstempconfig | where {$_.PropertyName -eq "ICMP Ping Timeout - FAST"}).Value1
@@ -1461,10 +1452,8 @@ Function Set-NetworkDiscoveryDefaults
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Low")]
     Param (
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
             # TODO
         }
@@ -1476,10 +1465,8 @@ Function Get-NetworkDiscoveryDefaults
     [CmdletBinding()]
     Param (
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         # TODO
     }
 }
@@ -1533,15 +1520,15 @@ Function Add-NetworkDiscoverySubnet
         if ($Force -or $pscmdlet.ShouldProcess($text)) {
             # Check uniqueness
             if (-not $OverrideUnique -and (Item-IsInPropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'" "Subnet Include" "$Subnet $Mask")) {
-                Write-Error "An included subnet with Value: `"$Subnet $Mask`" already exists!"
-                Write-Error "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
-                # TODO ThrowTerminatingError
+                Write-Warning "An included subnet with Value: `"$Subnet $Mask`" already exists!"
+                Write-Warning "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
+                Write-Error "Duplicate item found"
                 return
             }
             if (-not $OverrideUnique -and (Item-IsInPropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'" "Subnet Exclude" "$Subnet $Mask")) {
-                Write-Error "An excluded subnet with Value: `"$Subnet $Mask`" already exists!"
-                Write-Error "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
-                # TODO ThrowTerminatingError
+                Write-Warning "An excluded subnet with Value: `"$Subnet $Mask`" already exists!"
+                Write-Warning "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
+                Write-Error "Duplicate item found"
                 return
             }
 
@@ -1591,7 +1578,7 @@ Function Remove-NetworkDiscoverySubnet
 
         if ($existing -eq $null) {
             Write-Warning "The specified Network Discovery Subnet does not exist, and so cannot be deleted"
-            # TODO ThrowTerminatingError
+            Write-Error "Item not found"
             return
         }
 
@@ -1706,16 +1693,16 @@ Function Add-NetworkDiscoveryDomain
         if ($Force -or $pscmdlet.ShouldProcess($text)) {
             # Check uniqueness
             if (-not $OverrideUnique -and (Item-IsInPropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'" "Domain Include" $Domain)) {
-                Write-Error "An included domain with Value: `"$Domain`" already exists!"
-                Write-Error "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
-                # TODO ThrowTerminatingError
+                Write-Warning "An included domain with Value: `"$Domain`" already exists!"
+                Write-Warning "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
+                Write-Error "Duplicate item found"
                 return
             }
 
             if (-not $OverrideUnique -and (Item-IsInPropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'" "Domain Exclude" $Domain)) {
-                Write-Error "An excluded domain with Value: `"$Domain`" already exists!"
-                Write-Error "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
-                # TODO ThrowTerminatingError
+                Write-Warning "An excluded domain with Value: `"$Domain`" already exists!"
+                Write-Warning "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
+                Write-Error "Duplicate item found"
                 return
             }
 
@@ -1760,7 +1747,7 @@ Function Remove-NetworkDiscoveryDomain
 
         if ($existing -eq $null) {
             Write-Warning "The specified Network Discovery Domain does not exist, and so cannot be deleted"
-            # TODO ThrowTerminatingError
+            Write-Error "Item not found"
             return
         }
 
@@ -1860,9 +1847,9 @@ Function Add-NetworkDiscoverySNMPCommunity
         if ($Force -or $pscmdlet.ShouldProcess($CommunityName)) {
             # Check uniqueness
             if (-not $OverrideUnique -and ((Item-IsInPropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'" "Community Name" $DeviceAddress) -or (Item-IsInPropList "root\SMS\site_$($SiteCode)" SMS_SCI_Configuration "ItemName='SMS_NETWORK_DISCOVERY'" "Community Name" $DeviceAddress))) {
-                Write-Error "An SNMP Community with Name: `"$CommunityName`" already exists!"
-                Write-Error "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
-                # TODO ThrowTerminatingError
+                Write-Warning "An SNMP Community with Name: `"$CommunityName`" already exists!"
+                Write-Warning "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
+                Write-Error "Duplicate item found"
                 return
             }
 
@@ -1899,7 +1886,7 @@ Function Remove-NetworkDiscoverySNMPCommunity
 
         if ($existing -eq $null) {
             Write-Warning "The specified Network Discovery SNMP Community Name does not exist, and so cannot be deleted"
-            # TODO ThrowTerminatingError
+            Write-Error "Item not found"
             return
         }
 
@@ -1965,9 +1952,9 @@ Function Add-NetworkDiscoverySNMPDevice
         if ($Force -or $pscmdlet.ShouldProcess($DeviceAddress)) {
             # Check uniqueness
             if (-not $OverrideUnique -and ((Item-IsInPropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'" "Address Include" $DeviceAddress) -or (Item-IsInPropList "root\SMS\site_$($SiteCode)" SMS_SCI_Configuration "ItemName='SMS_NETWORK_DISCOVERY'" "Address Include" $DeviceAddress))) {
-                Write-Error "An SNMP Device with address: `"$DeviceAddress`" already exists!"
-                Write-Error "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
-                # TODO ThrowTerminatingError
+                Write-Warning "An SNMP Device with address: `"$DeviceAddress`" already exists!"
+                Write-Warning "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
+                Write-Error "Duplicate item found"
                 return
             }
 
@@ -2003,7 +1990,7 @@ Function Remove-NetworkDiscoverySNMPDevice
 
         if ($existing -eq $null) {
             Write-Warning "The specified Network Discovery SNMP Device does not exist, and so cannot be deleted"
-            # TODO ThrowTerminatingError
+            Write-Error "Item not found"
             return
         }
 
@@ -2068,9 +2055,9 @@ Function Add-NetworkDiscoveryDHCP
         if ($Force -or $pscmdlet.ShouldProcess($DHCPServer)) {
             # Check uniqueness
             if (-not $OverrideUnique -and ((Item-IsInPropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'" "DHCP Include" $DeviceAddress) -or (Item-IsInPropList "root\SMS\site_$($SiteCode)" SMS_SCI_Configuration "ItemName='SMS_NETWORK_DISCOVERY'" "DHCP Include" $DeviceAddress))) {
-                Write-Error "A DHCP server with address: `"$DHCPServer`" already exists!"
-                Write-Error "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
-                # TODO ThrowTerminatingError
+                Write-Warning "A DHCP server with address: `"$DHCPServer`" already exists!"
+                Write-Warning "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
+                Write-Error "Duplicate item found"
                 return
             }
 
@@ -2106,7 +2093,7 @@ Function Remove-NetworkDiscoveryDHCP
 
         if ($existing -eq $null) {
             Write-Warning "The specified Network Discovery DHCP Server does not exist, and so cannot be deleted"
-            # TODO ThrowTerminatingError
+            Write-Error "Item not found"
             return
         }
 
@@ -2202,7 +2189,7 @@ Function Add-NetworkDiscoverySchedule
             if (-not $OverrideUnique -and $sched_array -contains $Schedule) {
                 Write-Warning "A Schedule with text: `"$Schedule`" already exists!"
                 Write-Warning "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
-                Write-Error "Item Exists Error"
+                Write-Error "Duplicate item found"
                 return
             }
 
@@ -2245,7 +2232,7 @@ Function Remove-NetworkDiscoverySchedule
 
         if ($existing -eq $null) {
             Write-Warning "The specified Schedule does not exist, and so cannot be deleted"
-            # TODO ThrowTerminatingError
+            Write-Error "Item not found"
             return
         }
 
