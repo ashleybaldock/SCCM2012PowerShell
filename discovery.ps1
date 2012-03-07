@@ -76,6 +76,69 @@ Function Add-ItemToPropList
     $WmiObject.put() > $null
 }
 
+# Get the current value of a Property
+Function Get-WmiPropValue1
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter,
+        $PropName
+    )
+
+    $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
+
+    ($WmiObject.Props | where {$_.PropertyName -eq $PropName}).Value1
+}
+
+# Set the current value of a Property
+Function Set-WmiPropValue1
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter,
+        $PropName,
+        $NewPropValue
+    )
+
+    $props = Get-WmiProps $WmiObjectNamespace $WmiObjectClass $WmiObjectFilter
+
+    ($props | where {$_.PropertyName -eq $PropName}).Value1 = $NewPropValue
+
+    Set-WmiProps $WmiObjectNamespace $WmiObjectClass $WmiObjectFilter $props
+}
+
+# Get the Props list associated with a Wmi object
+Function Get-WmiProps
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter
+    )
+
+    $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
+
+    $WmiObject.Props
+}
+
+# Set the Props list associated with a Wmi object
+Function Set-WmiProps
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter,
+        $NewProps
+    )
+
+    $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
+
+    $WmiObject.Props = $NewProps
+    $WmiObject.Put()
+}
+
 
 #########################
 #  AD Forest Discovery  #
@@ -1245,7 +1308,9 @@ Function Set-NetworkDiscovery
         [switch]
             $Force,
         [switch]
-            $Enabled = $null,
+            $Enabled = $false,
+        [switch]
+            $Disabled = $false,
         [ValidateCount(0,1)]
         [ValidateSet("Topology", "TopologyAndClient", "ToplologyClientAndOS")]
             $Type = "None",
@@ -1266,18 +1331,15 @@ Function Set-NetworkDiscovery
     }
     Process {
         if ($Force -or $pscmdlet.ShouldProcess()) {
-            $NetworkDiscoveryComponent = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Component -Filter "ComponentName='SMS_NETWORK_DISCOVERY'"
-            $NetworkDiscoveryConfig = Get-WmiObject -Namespace "root\SMS\site_$($SiteCode)" -Class SMS_SCI_Configuration -Filter "ItemName='SMS_NETWORK_DISCOVERY'"
-
-            $propstempcomponent = $NetworkDiscoveryComponent.Props
-            $propstempconfig = $NetworkDiscoveryConfig.Props
+            $propstempcomponent = Get-WmiProps "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'"
+            $propstempconfig = Get-WmiProps "root\SMS\site_$($SiteCode)" SMS_SCI_Configuration "ItemName='SMS_NETWORK_DISCOVERY'"
 
             # Set enabled (may be null)
             if ($Enabled -eq $true) {
                 ($propstempcomponent | where {$_.PropertyName -eq "Discovery Enabled"}).Value1 = "TRUE"
                 ($propstempconfig | where {$_.PropertyName -eq "Discovery Enabled"}).Value1 = "TRUE"
             }
-            if ($Enabled -eq $false) {
+            if ($Disabled -eq $true) {
                 ($propstempcomponent | where {$_.PropertyName -eq "Discovery Enabled"}).Value1 = "FALSE"
                 ($propstempconfig | where {$_.PropertyName -eq "Discovery Enabled"}).Value1 = "FALSE"
             }
@@ -1387,11 +1449,9 @@ Function Set-NetworkDiscovery
                 }
             }
 
-            # Finally write changes back to the object
-            $NetworkDiscoveryComponent.Props = $propstempcomponent
-            $NetworkDiscoveryComponent.put()
-            $NetworkDiscoveryConfig.Props = $propstempconfig
-            $NetworkDiscoveryConfig.put()
+            # Finally write changes back to WMI
+            Set-WmiProps "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'" $propstempcomponent
+            Set-WmiProps "root\SMS\site_$($SiteCode)" SMS_SCI_Configuration "ItemName='SMS_NETWORK_DISCOVERY'" $propstempconfig
         }
     }
 }
@@ -1627,6 +1687,8 @@ Function Add-NetworkDiscoveryDomain
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
+            $OverrideUnique,
+        [switch]
             $Force,
         [string]
         [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
@@ -1785,6 +1847,8 @@ Function Add-NetworkDiscoverySNMPCommunity
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
+            $OverrideUnique,
+        [switch]
             $Force,
         [string]
         [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
@@ -1888,6 +1952,8 @@ Function Add-NetworkDiscoverySNMPDevice
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
+            $OverrideUnique,
+        [switch]
             $Force,
         [string]
         [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
@@ -1989,6 +2055,8 @@ Function Add-NetworkDiscoveryDHCP
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
+            $OverrideUnique,
+        [switch]
             $Force,
         [string]
         [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
@@ -2086,6 +2154,21 @@ Function Get-NetworkDiscoveryDHCP
 # Property is a single string made by concatenating Schedule strings together
 # (each schedule string is 16chars long, so you can split them up based on that)
 # Should return Schedule objects, and take the same
+Function Split-NetworkDiscoveryScheduleString
+{
+    Param (
+        $SchedString
+    )
+
+    # Split string into 16 character sections
+    $sched_array = @()
+    $sched_array += $SchedString.Substring(0, 16)
+    while ($SchedString = $SchedString.Substring(16)) {
+        $sched_array += $SchedString.Substring(0, 16)
+    }
+    $sched_array
+}
+
 Function Add-NetworkDiscoverySchedule
 {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
@@ -2094,18 +2177,48 @@ Function Add-NetworkDiscoverySchedule
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
-            $Force
+            $OverrideUnique,
+        [switch]
+            $Force,
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipeline = $true)]
+        [ValidateNotNullOrEmpty()] 
+            $Schedule
     )
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         # TODO
-        # Read string, split into 16 character sections
-        # Convert the supplied schedule into a string
-        ## Compare against each of the split sections (uniqueness check)
-        # If unique, add new schedule string to the end of the list
-        # Write back
-        ## Else prompt/error
+        if ($Force -or $pscmdlet.ShouldProcess($Schedule)) {
+            $sched = Get-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'" "Startup Schedule"
+            $sched += Get-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Configuration "ItemName='SMS_NETWORK_DISCOVERY'" "Startup Schedule"
+
+            # Split schedule strings up
+            $sched_array = Split-NetworkDiscoveryScheduleString $sched
+
+            # Ensure no duplicates
+            $sched_array = $sched_array | select -uniq
+
+            # Error if item already exists
+            if (-not $OverrideUnique -and $sched_array -contains $Schedule) {
+                Write-Warning "A Schedule with text: `"$Schedule`" already exists!"
+                Write-Warning "This parameter must be unique, pick a different value. (You can override with the -OverrideUnique parameter.)"
+                Write-Error "Item Exists Error"
+                return
+            }
+
+            $sched_array += $Schedule
+            $sched = [string]::Join("", $sched_array)
+
+            # Update fields + write back
+            Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'" "Startup Schedule" $sched
+            Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Configuration "ItemName='SMS_NETWORK_DISCOVERY'" "Startup Schedule" $sched
+
+            # Write out added object
+            $Schedule | Write-Output
+        }
     }
 }
+
 Function Remove-NetworkDiscoverySchedule
 {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "High")]
@@ -2114,14 +2227,50 @@ Function Remove-NetworkDiscoverySchedule
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
-            $Force
+            $Force,
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipeline = $true)]
+        [ValidateNotNullOrEmpty()] 
+            $Schedule
     )
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         # TODO
         # Read string, split into 16 character sections
         # Convert supplied schedule into a string
         ## Filter split sections based on input string to remove matching (exact match only)
         # Write back
+
+        $existing = Get-NetworkDiscoverySchedule -SiteCode $SiteCode -Schedule $Schedule -Exact
+
+        if ($existing -eq $null) {
+            Write-Warning "The specified Schedule does not exist, and so cannot be deleted"
+            # TODO ThrowTerminatingError
+            return
+        }
+
+        if ($Force -or $pscmdlet.ShouldProcess($Schedule)) {
+            $sched = Get-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'" "Startup Schedule"
+            $sched += Get-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Configuration "ItemName='SMS_NETWORK_DISCOVERY'" "Startup Schedule"
+
+            # Split schedule strings up
+            $sched_array = Split-NetworkDiscoveryScheduleString $sched
+
+            # Ensure no duplicates
+            $sched_array = ($sched_array | select -uniq)
+
+            # Filter results by input
+            $sched_array = ($sched_array | where {$_ -ne $Schedule})
+
+            $sched = [string]::Join("", $sched_array)
+
+            # Update fields + write back
+            Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'" "Startup Schedule" $sched > $null
+            Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Configuration "ItemName='SMS_NETWORK_DISCOVERY'" "Startup Schedule" $sched > $null
+
+            # Return the schedule deleted (TODO - return schedule object)
+            $existing | Write-Output
+        }
     }
 }
 Function Get-NetworkDiscoverySchedule
@@ -2130,13 +2279,46 @@ Function Get-NetworkDiscoverySchedule
     Param (
         [string]
         [ValidateNotNullOrEmpty()] 
-            $SiteCode = "Auto"
+            $SiteCode = "Auto",
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $Schedule = "*",
+        [switch]
+            $Exact
     )
     Process {
-        # TODO
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+        # If schedule is not a string (assume schedule object) turn it into a string
+        if ($Schedule.GetType().Name -ne "String") {
+            # TODO
+        }
+
+        # Stored in two places (which should be identical!)
+        $sched = Get-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_NETWORK_DISCOVERY'" "Startup Schedule"
+        $sched += Get-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_Configuration "ItemName='SMS_NETWORK_DISCOVERY'" "Startup Schedule"
+
         # Read string, split into 16 character sections
-        # Return either a list of all the schedules
-        ## Or just a single match (exact match only)
-        ### TODO extend this to permit matching based on schedule attributes?
+        if ($sched -eq "") {
+            # Empty, nothing to do
+            return
+        } else {
+            # Split schedule strings up
+            $sched_array = Split-NetworkDiscoveryScheduleString $sched
+
+            # Ensure no duplicates
+            $sched_array = $sched_array | select -uniq
+
+            # Filter results by input
+            if ($Exact) {
+                $sched_array = $sched_array | where {$_ -eq $Schedule}
+            } else {
+                $sched_array = $sched_array | where {$_ -like $Schedule}
+            }
+
+            foreach ($item in $sched_array) {
+                # TODO return schedule objects
+                $item | Write-Output
+            }
+        }
     }
 }
