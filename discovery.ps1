@@ -19,6 +19,72 @@ Function Get-PropListValues
     ($WmiObject.PropLists | where {$_.PropertyListName -eq $PropListName}).Values
 }
 
+# Set the values of the specified propslist
+Function Set-PropListValues
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter,
+        $PropListName,
+        $PropListValues
+    )
+
+    $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
+
+    # Add item to proplist
+    $proplists = $WmiObject.PropLists
+    ($proplists | where {$_.PropertyListName -eq $PropListName}).Values = $PropListValues
+
+    # Finally write changes back to the object
+    $WmiObject.PropLists = $proplists
+    $WmiObject.put() > $null
+}
+
+# Remove the PropList specified entirely
+Function Remove-PropList
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter,
+        $PropListName
+    )
+    $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
+
+    # Apply filter
+    $proplists = $WmiObject.PropLists
+    $proplists = $proplists | where {$_.PropertyListName -ne $PropListName}
+
+    # Finally write changes back to the object
+    $WmiObject.PropLists = $proplists
+    $WmiObject.put() > $null
+}
+
+# Add a PropList
+Function Add-PropList
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter,
+        $PropListName,
+        $PropListValues
+    )
+    $newprop = ([WMIClass] "$($WmiObjectNamespace):$($WmiObjectClass)").CreateInstance()
+    $newprop.PropertyListName = $PropListName
+    $newprop.PropListValues = $PropListValues
+
+    # Add new item
+    $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
+    $proplists = $WmiObject.PropLists
+    $proplists += $newprop
+
+    # Finally write changes back to the object
+    $WmiObject.PropLists = $proplists
+    $WmiObject.put() > $null
+}
+
 # Return $true if PropList specified exists, $false otherwise
 Function Check-PropListExists
 {
@@ -30,10 +96,8 @@ Function Check-PropListExists
     )
     $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
     if (($WmiObject.PropLists | where {$_.PropertyListName -eq $PropListName}) -eq $null) {
-        Write-Warning "PropList `"$PropListName`" not found"
         $false
     } else {
-        Write-Warning "PropList `"$PropListName`" found"
         $true
     }
 }
@@ -74,7 +138,6 @@ Function Item-IsInPropList
 
     $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
 
-    # Add item to proplist
     $proplists = $WmiObject.PropLists
     $proplist = ($proplists | where {$_.PropertyListName -eq $PropListName}).Values
     if ($proplist -contains $CommunityName) {
@@ -682,7 +745,7 @@ Function Set-ADGroupDiscoveryScope
         [string]
         [parameter(ValueFromPipelineByPropertyName = $true)]
             $Account = "Ignore",
-        [string]
+        [string[]]
         [parameter(ValueFromPipelineByPropertyName = $true)]
             $SearchBase = "Ignore"
     )
@@ -707,16 +770,44 @@ Function Set-ADGroupDiscoveryScope
         }
 
         if ($Force -or $pscmdlet.ShouldProcess($Name)) {
-            # TODO
+            $propvals = Get-PropListValues "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Containers"
             # Modify properties as needed
-            if ($Type -ne "Ignore") {
+            # Get proplist, lookup name index, offset + modify, write proplist back
+
+            # Type setting
+            if ($Type -eq "Location") {
+                $propvals[[array]::IndexOf($propvals, $Name) + 1] = 0
             }
-            if ($Recursion -ne "Ignore") {
+            if ($Type -eq "Group") {
+                $propvals[[array]::IndexOf($propvals, $Name) + 1] = 1
             }
+            # Recursion setting
+            if ($Recursion -eq "Yes") {
+                $propvals[[array]::IndexOf($propvals, $Name) + 2] = 0
+            }
+            if ($Recursion -eq "No") {
+                $propvals[[array]::IndexOf($propvals, $Name) + 2] = 1
+            }
+
+            Set-PropListValues "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Containers" $propvals
+
+            # Account setting
             if ($Account -ne "Ignore") {
-                # Not implemented! TODO
+                # TODO - check if account exists (need to find out where these are stored...)
+                if ((Check-PropListExists "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Accounts:$($Name)") -eq $true) {
+                    Set-PropListValues "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Accounts:$($Name)" $Account
+                } else {
+                    Add-PropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Accounts:$($Name)" $Account
+                }
             }
+
+            # Search Base setting
             if ($SearchBase -ne "Ignore") {
+                if ((Check-PropListExists "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Search Bases:$($Name)") -eq $true) {
+                    Set-PropListValues "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Search Bases:$($Name)" $SearchBase
+                } else {
+                    Add-PropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Search Bases:$($Name)" $SearchBase
+                }
             }
         }
     }
