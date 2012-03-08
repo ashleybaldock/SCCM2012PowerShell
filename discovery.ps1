@@ -6,6 +6,38 @@
 #  Utility Functions  #
 #######################
 
+# Return an array containing the elements of a PropList
+Function Get-PropListValues
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter,
+        $PropListName
+    )
+    $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
+    ($WmiObject.PropLists | where {$_.PropertyListName -eq $PropListName}).Values
+}
+
+# Return $true if PropList specified exists, $false otherwise
+Function Check-PropListExists
+{
+    Param (
+        $WmiObjectNamespace,
+        $WmiObjectClass,
+        $WmiObjectFilter,
+        $PropListName
+    )
+    $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
+    if (($WmiObject.PropLists | where {$_.PropertyListName -eq $PropListName}) -eq $null) {
+        Write-Warning "PropList `"$PropListName`" not found"
+        $false
+    } else {
+        Write-Warning "PropList `"$PropListName`" found"
+        $true
+    }
+}
+
 # Filter (and save) a PropList
 Function Filter-PropList
 {
@@ -267,6 +299,7 @@ Function Set-ADForestDiscovery
             # Site Boundary Creation
             if ($CreateSiteBoundaries -eq "Yes") {
                 Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_FOREST_DISCOVERY_MANAGER'" "Enable AD Site Boundary Creation" 1
+            }
             if ($DiscoverDistributionGroups -eq "No") {
                 Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_FOREST_DISCOVERY_MANAGER'" "Enable AD Site Boundary Creation" 0
             }
@@ -274,6 +307,7 @@ Function Set-ADForestDiscovery
             # Subnet Boundary Creation
             if ($CreateSubnetBoundaries -eq "Yes") {
                 Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_FOREST_DISCOVERY_MANAGER'" "Enable Subnet Boundary Creation" 1
+            }
             if ($DiscoverDistributionGroups -eq "No") {
                 Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_FOREST_DISCOVERY_MANAGER'" "Enable Subnet Boundary Creation" 0
             }
@@ -414,6 +448,7 @@ Function Set-ADGroupDiscovery
             # Last logon filter
             if ($FilterExpiredLogons -eq "Yes") {
                 Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Enable Filtering Expired Logon" 1
+            }
             if ($FilterExpiredLogons -eq "No") {
                 Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Enable Filtering Expired Logon" 0
             }
@@ -424,6 +459,7 @@ Function Set-ADGroupDiscovery
             # Machine account password expiry filter
             if ($FilterExpiredPasswords -eq "Yes") {
                 Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Enable Filtering Expired Password" 1
+            }
             if ($FilterExpiredPasswords -eq "No") {
                 Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Enable Filtering Expired Password" 0
             }
@@ -434,14 +470,31 @@ Function Set-ADGroupDiscovery
             # Distribution group discovery
             if ($DiscoverDistributionGroups -eq "Yes") {
                 Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Discover DG Membership" 1
+            }
             if ($DiscoverDistributionGroups -eq "No") {
                 Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Discover DG Membership" 0
             }
         }
     }
 }
-# AD Group Scopes
-Function Add-ADGroupDiscoveryGroupScope
+
+
+# System/User discovery
+
+# DName: LDAP distinguished name
+# Recursive: Yes or No
+# DiscoverGroups: Yes or No
+# Account: string
+
+
+# Same object type can be used for AD Group, System and User discovery
+
+# Name: Any, but unique
+# Type: Location OR Group (Ignored for System/User discovery)
+# Recursion: Yes or No (Location/System/User discovery only
+# Account: string
+# SearchBase(s): One or more LDAP paths
+Function Add-ADGroupDiscoveryScope
 {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
     Param (
@@ -449,22 +502,42 @@ Function Add-ADGroupDiscoveryGroupScope
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
-            $Force
+            $OverrideUnique,
+        [switch]
+            $Force,
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [ValidateNotNullOrEmpty()]
+            $Name,
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [ValidateSet("Location", "Group")]
+            $Type,
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [ValidateSet("Yes", "No")]
+            $Recursion,
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $Account = "",
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+            $SearchBase
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         if ($Force -or $pscmdlet.ShouldProcess()) {
             # TODO
+            if ($Account -ne "") {
+                Write-Warning "Setting Account information for new Group Discovery Scopes is not yet supported!"
+                Write-Error "Not Implemented Yet"
+                return
+            }
         }
     }
 }
-# Name (arbitrary)
-# Domain + Forest
-# Groups[] (strings)
-# Account for discovery
-Function Remove-ADGroupDiscoveryGroupScope
+
+Function Remove-ADGroupDiscoveryScope
 {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "High")]
     Param (
@@ -473,136 +546,178 @@ Function Remove-ADGroupDiscoveryGroupScope
             $SiteCode = "Auto",
         [switch]
             $Force,
-        [somekindaobject[]] # TODO object?
-        [parameter(Mandatory = $true, ValueFromPipeLine = $true)]
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
         [ValidateNotNullOrEmpty()]
-            $GroupScope
+            $Name
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
-        foreach ($GrpScope in $GroupScope) {
-            if ($Force -or $pscmdlet.ShouldProcess()) {
-                # TODO
-            }
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
+
+        $existing = Get-ADGroupDiscoveryScope -SiteCode $SiteCode -Name $Name -Exact
+
+        if ($existing -eq $null) {
+            Write-Warning "The specified AD Group Discovery Scope does not exist, and so cannot be deleted"
+            Write-Error "Item not found"
+            return
+        }
+
+        if ($Force -or $pscmdlet.ShouldProcess($Name)) {
+            # TODO
         }
     }
 }
-Function Get-ADGroupDiscoveryGroupScope
+
+# Search for scopes based on their parameters
+Function Get-ADGroupDiscoveryScope
 {
     [CmdletBinding()]
     Param (
         [string]
         [ValidateNotNullOrEmpty()] 
-            $SiteCode = "Auto"
+            $SiteCode = "Auto",
+        [switch]
+            $Exact,
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $Name = "*",
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+        [ValidateSet("Location", "Group", "*")]
+            $Type = "*",
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+        [ValidateSet("Yes", "No", "*")]
+            $Recursion = "*",
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $Account = "*",
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $SearchBase = "*"
     )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
     Process {
+        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
         # TODO
-    }
-}
-Function Set-ADGroupDiscoveryGroupScope
-{
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
-    Param (
-        [string]
-        [ValidateNotNullOrEmpty()] 
-            $SiteCode = "Auto",
-        [switch]
-            $Force
-    )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
-    Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
+
+        # Create an object for each one
+        # Filter the objects
+        $propvals = Get-PropListValues "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Containers"
+
+        # Returns the item requested and its properties
+        #$propvals[[array]::IndexOf($propvals, $Name)..3]
+
+        $objects = @()
+
+        $ind = 0
+
+        # Build list of objects
+        while ($sub = $propvals[$ind..($ind + 3)]) {
+            $obj = New-Object Object | Add-Member NoteProperty Name $sub[0] -PassThru
+
+            if ($sub[1] -eq 0) {
+                $obj = $obj | Add-Member NoteProperty Type "Location" -PassThru
+            } else {
+                $obj = $obj | Add-Member NoteProperty Type "Group" -PassThru
+            }
+            if ($sub[2] -eq 0) {
+                $obj = $obj | Add-Member NoteProperty Recursion "Yes" -PassThru
+            } else {
+                $obj = $obj | Add-Member NoteProperty Recursion "No" -PassThru
+            }
+
+            if ((Check-PropListExists "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Accounts:$($obj.Name)") -eq $true) {
+                $obj = $obj | Add-Member NoteProperty Account (Get-PropListValues "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Accounts:$($obj.Name)") -PassThru
+            } else {
+                $obj = $obj | Add-Member NoteProperty Account "" -PassThru
+            }
+
+            if ((Check-PropListExists "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Search Bases:$($obj.Name)") -eq $true) {
+                $searchbases = Get-PropListValues "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Search Bases:$($obj.Name)"
+                $obj = $obj | Add-Member NoteProperty SearchBase $searchbases -PassThru
+            } else {
+                $obj = $obj | Add-Member NoteProperty SearchBase "" -PassThru
+            }
+
+            $objects += $obj
+            $ind += 4
+        }
+
+        # Next filter objects by input parameters + return
+
+        if ($Exact -eq $true) {
+            $objects | where {$_.Name -eq $Name}
+        } else {
+            $objects | where {$_.Name -like $Name} |
+                       where {$_.Type -like $Type} |
+                       where {$_.Recursion -like $Recursion} |
+                       where {$_.Account -like $Account} |
+                       where {$_.SearchBase -like $SearchBase}
         }
     }
 }
-# AD Location Scopes
-Function Add-ADGroupDiscoveryLocationScope
+
+# Modify the Group Discovery Scope with specified Name, setting properties
+Function Set-ADGroupDiscoveryScope
 {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
-    Param (
-        [string]
-        [ValidateNotNullOrEmpty()] 
-            $SiteCode = "Auto",
-        [switch]
-            $Force
-    )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
-    Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
-        }
-    }
-}
-# Name (arbitrary)
-# Location (LDAP path)
-#  Option: Recursive search
-# Discovery account
-Function Remove-ADGroupDiscoveryLocationScope
-{
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "High")]
     Param (
         [string]
         [ValidateNotNullOrEmpty()] 
             $SiteCode = "Auto",
         [switch]
             $Force,
-        [somekindaobject[]] # TODO object?
-        [parameter(Mandatory = $true, ValueFromPipeLine = $true)]
+        [string]
+        [parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
         [ValidateNotNullOrEmpty()]
-            $LocationScope
+            $Name,
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+        [ValidateSet("Location", "Group", "Ignore")]
+            $Type = "Ignore",
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+        [ValidateSet("Yes", "No", "Ignore")]
+            $Recursion = "Ignore",
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $Account = "Ignore",
+        [string]
+        [parameter(ValueFromPipelineByPropertyName = $true)]
+            $SearchBase = "Ignore"
     )
     Begin {
         if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
     }
     Process {
-        foreach ($LocScope in $LocationScope) {
-            if ($Force -or $pscmdlet.ShouldProcess()) {
-                # TODO
-            }
+        # Check for non-implemented setting
+        if ($Account -ne "Ignore") {
+            Write-Warning "Setting Account information for Group Discovery Scopes is not yet supported!"
+            Write-Error "Not Implemented Yet"
+            return
         }
-    }
-}
-Function Get-ADGroupDiscoveryLocationScope
-{
-    [CmdletBinding()]
-    Param (
-        [string]
-        [ValidateNotNullOrEmpty()] 
-            $SiteCode = "Auto"
-    )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
-    Process {
-        # TODO
-    }
-}
-Function Set-ADGroupDiscoveryLocationScope
-{
-    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
-    Param (
-        [string]
-        [ValidateNotNullOrEmpty()] 
-            $SiteCode = "Auto",
-        [switch]
-            $Force
-    )
-    Begin {
-        if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-    }
-    Process {
-        if ($Force -or $pscmdlet.ShouldProcess()) {
+
+        # Check that scope with name exists (else we can't modify it)
+        $existing = Get-ADGroupDiscoveryScope -SiteCode $SiteCode -Name $Name -Exact
+
+        if ($existing -eq $null) {
+            Write-Warning "The specified AD Group Discovery Scope does not exist, and so cannot be modified - try the Add-ADGroupDiscoveryScope command instead"
+            Write-Error "Item not found"
+            return
+        }
+
+        if ($Force -or $pscmdlet.ShouldProcess($Name)) {
             # TODO
+            # Modify properties as needed
+            if ($Type -ne "Ignore") {
+            }
+            if ($Recursion -ne "Ignore") {
+            }
+            if ($Account -ne "Ignore") {
+                # Not implemented! TODO
+            }
+            if ($SearchBase -ne "Ignore") {
+            }
         }
     }
 }
@@ -736,6 +851,7 @@ Function Set-ADSystemDiscovery
             # Last logon filter
             if ($FilterExpiredLogons -eq "Yes") {
                 Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "Enable Filtering Expired Logon" 1
+            }
             if ($FilterExpiredLogons -eq "No") {
                 Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "Enable Filtering Expired Logon" 0
             }
@@ -746,6 +862,7 @@ Function Set-ADSystemDiscovery
             # Machine account password expiry filter
             if ($FilterExpiredPasswords -eq "Yes") {
                 Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "Enable Filtering Expired Password" 1
+            }
             if ($FilterExpiredPasswords -eq "No") {
                 Set-WmiPropValue "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SYSTEM_DISCOVERY_AGENT'" "Enable Filtering Expired Password" 0
             }
@@ -1201,8 +1318,7 @@ Function Set-HeartbeatDiscovery
             if ($Enabled -eq "No") {
                 Set-WmiPropValue1 "root\SMS\site_$($SiteCode)" SMS_SCI_ClientConfig "ItemName='Client Properties'" "Enable Heartbeat DDR" 0
             }
-
-            if ($Schedule -ne "None")
+            if ($Schedule -ne "None") {
                 Set-WmiPropValue2 "root\SMS\site_$($SiteCode)" SMS_SCI_ClientConfig "ItemName='Client Properties'" "DDR Refresh Interval" $Schedule
             }
         }
