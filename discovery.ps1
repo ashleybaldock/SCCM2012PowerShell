@@ -51,13 +51,7 @@ Function Remove-PropList
         $PropListName
     )
     $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
-
-    # Apply filter
-    $proplists = $WmiObject.PropLists
-    $proplists = $proplists | where {$_.PropertyListName -ne $PropListName}
-
-    # Finally write changes back to the object
-    $WmiObject.PropLists = $proplists
+    $WmiObject.PropLists = [System.Management.ManagementBaseObject[]] ($proplists | where {$_.PropertyListName -ne $PropListName})
     $WmiObject.put() > $null
 }
 
@@ -71,17 +65,17 @@ Function Add-PropList
         $PropListName,
         $PropListValues
     )
-    $newprop = ([WMIClass] "$($WmiObjectNamespace):$($WmiObjectClass)").CreateInstance()
+    $newprop = ([WMIClass] "$($WmiObjectNamespace):SMS_EmbeddedPropertyList").CreateInstance()
     $newprop.PropertyListName = $PropListName
-    $newprop.PropListValues = $PropListValues
-
+    foreach ($item in $PropListValues) {
+        $newprop.Values += $item
+    }
+    # Convert to base type to avoid errors
+    $newprop = [System.Management.ManagementBaseObject] $newprop
     # Add new item
     $WmiObject = Get-WmiObject -Namespace $WmiObjectNamespace -Class $WmiObjectClass -Filter $WmiObjectFilter
-    $proplists = $WmiObject.PropLists
-    $proplists += $newprop
-
+    $WmiObject.PropLists += $newprop
     # Finally write changes back to the object
-    $WmiObject.PropLists = $proplists
     $WmiObject.put() > $null
 }
 
@@ -589,12 +583,56 @@ Function Add-ADGroupDiscoveryScope
     )
     Process {
         if ($SiteCode -eq "Auto") { $SiteCode = "D71" }
-        if ($Force -or $pscmdlet.ShouldProcess()) {
-            # TODO
-            if ($Account -ne "") {
-                Write-Warning "Setting Account information for new Group Discovery Scopes is not yet supported!"
-                Write-Error "Not Implemented Yet"
-                return
+
+        if ($Account -ne "") {
+            Write-Warning "Setting Account information for new Group Discovery Scopes is not yet supported!"
+            Write-Error "Not Implemented Yet"
+            return
+        }
+
+        # Check that scope with name exists (else we can't modify it)
+        $existing = Get-ADGroupDiscoveryScope -SiteCode $SiteCode -Name $Name -Exact
+
+        if ($existing -ne $null) {
+            Write-Warning "An AD Group Discovery Scope with the same name exists, this parameter must be unique! If you want to modify the existing item use Set-ADGroupDiscoveryScope"
+            Write-Error "Duplicate item exists"
+            return
+        }
+
+        if ($Force -or $pscmdlet.ShouldProcess($Name)) {
+            $propvals = Get-PropListValues "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Containers"
+
+            $propvals += $Name
+
+            # Type setting
+            if ($Type -eq "Location") { $propvals += 0 }
+            if ($Type -eq "Group") { $propvals += 1 }
+            # Recursion setting
+            if ($Recursion -eq "Yes") { $propvals += 0 }
+            if ($Recursion -eq "No") { $propvals += 1 }
+            # And one more item
+            $propvals += 1
+
+            Set-PropListValues "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Containers" $propvals
+
+            # Account setting
+            if ($Account -eq "") {
+                if ((Check-PropListExists "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Accounts:$($Name)") -eq $true) {
+                    Remove-PropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Accounts:$($Name)"
+                }
+            } else {
+                if ((Check-PropListExists "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Accounts:$($Name)") -eq $true) {
+                    Set-PropListValues "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Accounts:$($Name)" $Account
+                } else {
+                    Add-PropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Accounts:$($Name)" $Account
+                }
+            }
+
+            # Search Base setting
+            if ((Check-PropListExists "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Search Bases:$($Name)") -eq $true) {
+                Set-PropListValues "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Search Bases:$($Name)" $SearchBase
+            } else {
+                Add-PropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Search Bases:$($Name)" $SearchBase
             }
         }
     }
@@ -627,6 +665,34 @@ Function Remove-ADGroupDiscoveryScope
 
         if ($Force -or $pscmdlet.ShouldProcess($Name)) {
             # TODO
+            # Create an object for each one
+            # Filter the objects
+            $propvals = Get-PropListValues "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Containers"
+
+            $propvalsout = @()
+            $ind = 0
+
+            # Filter matching items (and the 3 properties which follow the key)
+            while ($sub = $propvals[$ind..($ind + 3)]) {
+                if ($sub[0] -ne $Name) {
+                    foreach ($item in $sub) {
+                        $propvalsout += $item
+                    }
+                }
+                $ind += 4
+            }
+
+            # Remove other proplists if needed
+            if ((Check-PropListExists "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Accounts:$($Name)") -eq $true) {
+                Remove-PropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Accounts:$($Name)"
+            }
+
+            if ((Check-PropListExists "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Search Bases:$($Name)") -eq $true) {
+                Remove-PropList "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "Search Bases:$($Name)"
+            }
+
+            Set-PropListValues "root\SMS\site_$($SiteCode)" SMS_SCI_Component "ComponentName='SMS_AD_SECURITY_GROUP_DISCOVERY_AGENT'" "AD Containers" $propvalsout
+
         }
     }
 }
